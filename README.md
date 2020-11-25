@@ -2,16 +2,18 @@
 
 本指南将会为您介绍如何使用Lua SDK接入您的项目。
 
-**最新版本为：**1.0.0
+**最新版本为：** 1.0.0
 
-**更新时间为：**2020-11-20
+**更新时间为：** 2020-11-20
 
 
 ## 1. 初始化SDK
 
 您可以通过三种方式获得SDK实例（其他Consumer构造器的重载请参考API文档）：
 
-**(1)LogConsumer：**批量写本地文件，文件按天或小时分隔，需要搭配LogBus进行上传
+### a) LogConsumer
+
+**LogConsumer：** 批量写本地文件，文件按天或小时分隔，需要搭配LogBus进行上传
 
 ```lua
 --LogConsumer
@@ -27,7 +29,9 @@ local td = TdSDK(consumer)
 
 `LOG_DIRECTORY`为写入本地的文件夹地址，您只需将LogBus的监听文件夹地址设置为此处的地址，即可使用LogBus进行数据的监听上传。
 
-**(2)BatchConsumer：**批量向TA服务器传输数据，不需要搭配传输工具，**<font color="red">需注意事件丢失的情况</font>**
+### b) BatchConsumer
+
+**BatchConsumer：** 批量向TA服务器传输数据，不需要搭配传输工具，**<font color="red">需注意事件丢失的情况</font>**
 
 ```lua
 --BatchConsumer
@@ -38,7 +42,9 @@ local consumer = TdSDK.BatchConsumer(SERVER_URI, APP_ID)
 local td = TdSDK(consumer)
 ```
 
-**(3)DebugConsumer:**逐条向 TA 服务器传输数据，在数据校验出错时会抛出异常，用于数据调试
+### c) DebugConsumer
+
+**DebugConsumer：** 逐条向 TA 服务器传输数据，在数据校验出错时会抛出异常，用于数据调试
 
 ```lua
 --DebugConsumer
@@ -100,7 +106,7 @@ properties["OrderId"] = "abc_123"
 sdk:track(distinctId, accountId, "payment", properties)
 properties = nil
 ```
-**注：**为了保证访客ID与账号ID能够顺利进行绑定，如果您的游戏中会用到访客ID与账号ID，我们极力建议您同时上传这两个ID，<font color="red">否则将会出现账号无法匹配的情况，导致用户重复计算</font>。
+**注：** 为了保证访客ID与账号ID能够顺利进行绑定，如果您的游戏中会用到访客ID与账号ID，我们极力建议您同时上传这两个ID，<font color="red">否则将会出现账号无法匹配的情况，导致用户重复计算</font>。
 
 * 事件的名称是`String`类型，只能以字母开头，可包含数字，字母和下划线“\_”，长度最大为50个字符，对字母大小写不敏感。
 * 事件的属性是一个`table`对象，其中每个元素代表一个属性。  
