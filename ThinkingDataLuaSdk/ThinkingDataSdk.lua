@@ -43,7 +43,7 @@ TdSDK = class(function(self, consumer)
         error("consumer参数不正确.")
     end
     self.consumer = consumer
-    self.SuperProperties = {}
+    self.superProperties = {}
 end)
 
 --DebugConsumer
@@ -138,24 +138,14 @@ TdSDK.LogConsumer = class(function(self, logPath, rule, batchNum, fileSize, file
     self.logPath = Util.mkdirFolder(logPath)
     self.fileNamePrefix = fileNamePrefix
     self.fileSize = fileSize
-    self.fileName = Util.getFileName(logPath, fileNamePrefix, fileSize, self.rule)
-    Util.log("Info: ", "LogConsumer生效, 日志目录为: " .. self.logPath .. " 文件切分方式: " .. self.rule)
+    self.count = nil
     self.batchNum = batchNum or TdSDK.batchNumber
-    self.lastFlushTime = os.date("%Y-%m-%d %H:%M:%S")
+    self.currentFileTime = os.date("%Y-%m-%d %H:%M:%S")
+    self.fileName = Util.getFileName(logPath, fileNamePrefix, self.rule)
     self.eventArrayJson = {}
+    Util.log("Info: ", "LogConsumer生效, 日志目录为: " .. self.logPath .. " 文件切分方式: " .. self.rule)
 end)
 function TdSDK.LogConsumer:add(msg)
-    local flushFlag = false
-    if self.rule == TdSDK.LOG_RULE.HOUR then
-        flushFlag = Util.getDateFromDateTime(self.lastFlushTime) ~= os.date("%Y-%m-%d")
-                or Util.getHourFromDate(self.lastFlushTime) ~= Util.getCurrentHour()
-    else
-        flushFlag = Util.getDateFromDateTime(self.lastFlushTime) ~= os.date("%Y-%m-%d")
-    end
-    if flushFlag then
-        self:flush()
-        self.fileName = Util.getFileName(self.logPath, self.fileNamePrefix, self.fileSize, self.rule)
-    end
     local num = #self.eventArrayJson + 1
     self.eventArrayJson[num] = msg
     if (num >= self.batchNum) then
@@ -167,8 +157,27 @@ function TdSDK.LogConsumer:flush()
     if #self.eventArrayJson == 0 then
         return ""
     end
-    local body = Util.writeFile(self.fileName, self.eventArrayJson)
-    self.lastFlushTime = os.date("%Y-%m-%d %H:%M:%S")
+    local isFileNameChange = false
+    if self.rule == TdSDK.LOG_RULE.HOUR then
+        isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
+                or Util.getHourFromDate(self.currentFileTime) ~= Util.getCurrentHour()
+    else
+        isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
+    end
+
+    if isFileNameChange then
+        self.currentFileTime = os.date("%Y-%m-%d %H:%M:%S")
+        self.fileName = Util.getFileName(self.logPath, self.fileNamePrefix, self.rule)
+        self.count = nil
+    end
+    if self.fileSize and self.fileSize > 0 then
+        self.count = Util.getFileCount(self.fileName, self.fileSize, self.count)
+    end
+    local fileName = self.fileName
+    if self.count then
+        fileName = self.fileName .. "_" .. self.count
+    end
+    local body = Util.writeFile(fileName, self.eventArrayJson)
     self.eventArrayJson = {}
     return body
 end
@@ -183,8 +192,8 @@ function TdSDK.LogConsumer:toString()
 end
 
 --[[
-	 * 注册公共属性,注册后每次发送的消息体中都包含该属性值
-	 * @param params 属性
+     * 注册公共属性,注册后每次发送的消息体中都包含该属性值
+     * @param params 属性
 --]]
 function TdSDK:setSuperProperties(params)
     local ok, ret = pcall(checkKV, params)
@@ -206,24 +215,24 @@ function TdSDK:setSuperProperty(key, value)
     end
 end
 --[[
-	 * 移除公共属性
-	 * @param key 属性Key
+     * 移除公共属性
+     * @param key 属性Key
 --]]
 function TdSDK:removeSuperProperty(key)
     self.superProperties[key] = nil
 end
 --[[
-	 * 获取公共属性
-	 * @param key 属性Key
-	 * @return 该KEY的公共属性值
+     * 获取公共属性
+     * @param key 属性Key
+     * @return 该KEY的公共属性值
 --]]
 function TdSDK:getSuperProperty(key)
     Util.log("", "获取公共属性" .. key .. "值为: " .. self.superProperties[key])
     return self.superProperties[key]
 end
 --[[
-	 * 获取公共属性
-	 * @return 所有公共属性
+     * 获取公共属性
+     * @return 所有公共属性
 --]]
 function TdSDK:getSuperProperties()
     return self.superProperties
@@ -235,9 +244,9 @@ end
 
 --[[
      * 设置用户的属性
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
-	 * @param properties 事件属性
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param properties 事件属性
 --]]
 function TdSDK:userSet(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_set", nil, nil, properties)
@@ -249,10 +258,10 @@ function TdSDK:userSet(accountId, distinctId, properties)
     end
 end
 --[[
-	 * 首次设置用户的属性,该属性只在首次设置时有效
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
-	 * @param properties 事件属性
+     * 首次设置用户的属性,该属性只在首次设置时有效
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param properties 事件属性
 --]]
 function TdSDK:userSetOnce(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_setOnce", nil, nil, properties)
@@ -264,10 +273,10 @@ function TdSDK:userSetOnce(accountId, distinctId, properties)
     end
 end
 --[[
-	 * 为用户的一个或多个数值类型的属性累加一个数值
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
-	 * @param properties 事件属性
+     * 为用户的一个或多个数值类型的属性累加一个数值
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param properties 事件属性
 --]]
 function TdSDK:userAdd(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_add", nil, nil, properties)
@@ -279,10 +288,10 @@ function TdSDK:userAdd(accountId, distinctId, properties)
     end
 end
 --[[
-	 * 追加用户列表类型的属性
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
-	 * @param properties 事件属性
+     * 追加用户列表类型的属性
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param properties 事件属性
 --]]
 function TdSDK:userAppend(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_append", nil, nil, properties)
@@ -294,10 +303,10 @@ function TdSDK:userAppend(accountId, distinctId, properties)
     end
 end
 --[[
-	 * 删除用户属性
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
-	 * @param properties 事件属性
+     * 删除用户属性
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param properties 事件属性
 --]]
 function TdSDK:userUnset(accountId, distinctId, properties)
     local unSetProperties = {}
@@ -313,9 +322,9 @@ function TdSDK:userUnset(accountId, distinctId, properties)
     end
 end
 --[[
-	 * 删除用户
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
+     * 删除用户
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
 --]]
 function TdSDK:userDel(accountId, distinctId)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_del", nil, nil, {})
@@ -328,11 +337,11 @@ function TdSDK:userDel(accountId, distinctId)
 end
 
 --[[
-	 * 覆盖旧值
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
-	 * @param eventName 事件名称
-	 * @param properties 事件属性
+     * 事件数据
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param eventName 事件名称
+     * @param properties 事件属性
 --]]
 function TdSDK:track(accountId, distinctId, eventName, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, "", properties, self.superProperties)
@@ -344,12 +353,12 @@ function TdSDK:track(accountId, distinctId, eventName, properties)
     end
 end
 --[[
-	 * 更新旧属性值
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
-	 * @param eventName 事件名称
-	 * @param eventId 事件ID
-	 * @param properties 事件属性
+     * 更新旧属性值
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param eventName 事件名称
+     * @param eventId 事件ID
+     * @param properties 事件属性
 --]]
 function TdSDK:trackUpdate(accountId, distinctId, eventName, eventId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_update", eventName, eventId, properties, self.superProperties)
@@ -361,12 +370,12 @@ function TdSDK:trackUpdate(accountId, distinctId, eventName, eventId, properties
     end
 end
 --[[
-	 * 覆盖所有旧属性
-	 * @param distinctId 未登录用户ID
-	 * @param accountId 登录用户ID
-	 * @param eventName 事件名称
-	 * @param eventId 事件ID
-	 * @param properties 事件属性
+     * 覆盖所有旧属性
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param eventName 事件名称
+     * @param eventId 事件ID
+     * @param properties 事件属性
 --]]
 function TdSDK:trackOverwrite(accountId, distinctId, eventName, eventId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_overwrite", eventName, eventId, properties, self.superProperties)
@@ -379,14 +388,14 @@ function TdSDK:trackOverwrite(accountId, distinctId, eventName, eventId, propert
 end
 
 --[[
-	 * 上传数据,首先校验相关KEY和VALUE,符合规则才可以上传
-	 * @param consumer 收集器
-	 * @param distinctId 用户标识
-	 * @param isLogin 是否登陆
-	 * @param eventName 事件名称
-	 * @param eventId 事件ID，结合eventName用于track_update和track_overwrite
-	 * @param properties 属性
-	 * @param super 公共属性
+     * 上传数据,首先校验相关KEY和VALUE,符合规则才可以上传
+     * @param consumer 收集器
+     * @param distinctId 用户标识
+     * @param isLogin 是否登陆
+     * @param eventName 事件名称
+     * @param eventId 事件ID，结合eventName用于track_update和track_overwrite
+     * @param properties 属性
+     * @param super 公共属性
 --]]
 function upload(consumer, distinctId, accountId, eventType, eventName, eventId, properties, superProperties)
     local finalProperties, presetProperties = divide(properties)
@@ -502,7 +511,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.0.0"
+TdSDK.version = "1.1.0"
 TdSDK.batchNumber = 10
 TdSDK.logModePath = "."
 

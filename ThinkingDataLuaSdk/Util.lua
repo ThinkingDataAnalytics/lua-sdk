@@ -175,7 +175,7 @@ function _Util.writeFile(fileName, eventArrayJson)
     return data
 end
 
-function _Util.getFileName(filePath, fileNamePrefix, fileSize, rule)
+function _Util.getFileName(filePath, fileNamePrefix, rule)
     local isWindows = isWindows()
     local separator = "/"
     if (isWindows) then
@@ -183,31 +183,38 @@ function _Util.getFileName(filePath, fileNamePrefix, fileSize, rule)
     end
     local fileName
     if not fileNamePrefix or #fileNamePrefix == 0 then
-        fileName = filePath .. separator .. "log." .. os.date(rule) .. "_"
+        fileName = filePath .. separator .. "log." .. os.date(rule)
     else
-        fileName = filePath .. separator .. fileNamePrefix .. ".log." .. os.date(rule) .. "_"
+        fileName = filePath .. separator .. fileNamePrefix .. ".log." .. os.date(rule)
     end
-    local count = 0
-    local result = fileName .. count
-    print(result)
+
+    return fileName
+end
+
+function _Util.getFileCount(fileName, fileSize, count)
     if not fileSize or fileSize <= 0 then
-        return result
+        return nil
     end
-    local file = assert(io.open(result, "r"))
+
+    if not count then
+        count = 0
+    end
+
+    local result = fileName .. "_" .. count
+    local file = assert(io.open(result, "a"))
     while file
     do
-        local len = assert(file.seek("end"))
+        local len = assert(file:seek("end"))
         if len < (fileSize * 1024 * 1024) then
-            file.close()
+            file:close()
             file = nil
-            return fileName .. (count + 1)
         else
             count = count + 1
-            result = fileName .. count
-            file = assert(io.open(result, "r"))
+            result = fileName .. "_" .. count
+            file = assert(io.open(result, "a"))
         end
     end
-    return result
+    return count
 end
 
 function _Util.trim(s)
