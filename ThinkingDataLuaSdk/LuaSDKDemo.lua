@@ -6,8 +6,8 @@ local PUSH_URL = "http://localhost:port"
 
 --初始化
 local consumer = TdSDK.BatchConsumer(PUSH_URL, APP_ID)  --批量收集器
---consumer = LuaSDK.DebugConsumer(POST_URL, APP_ID, 1)    --调试收集器
---consumer = LuaSDK.LogConsumer("/tmp/data") --本地文件收集器
+--consumer = TdSDK.DebugConsumer(POST_URL, APP_ID)    --调试收集器
+--consumer = TdSDK.LogConsumer("/tmp/data", TdSDK.LOG_RULE.HOUR, 20, 1) --本地文件收集器
 local sdk = TdSDK(consumer)
 
 local distinctId = "1234567890987654321"

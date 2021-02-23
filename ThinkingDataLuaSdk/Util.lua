@@ -6,15 +6,19 @@ local http = require("socket.http")
 local ltn12 = require("ltn12")
 local cjson = require("cjson")
 
-function _Util.post(url, appid, eventArrayJson, isDebug)
+function _Util.post(url, appid, eventArrayJson, isDebug, debugOnly)
     if not isDebug and #eventArrayJson == 0 then
         return "", "", ""
     end
     local request_body = toJson(eventArrayJson)
     local contentType = "application/json"
     if isDebug then
+        local dryRun = 0
+        if debugOnly then
+            dryRun = 1
+        end
         request_body = urlEncode(request_body)
-        request_body = "data=" .. request_body .. "&source=server&appid=" .. appid .. "&dryRun=1"
+        request_body = "data=" .. request_body .. "&source=server&appid=" .. appid .. "&dryRun=" .. dryRun
         contentType = "application/x-www-form-urlencoded"
     end
     local response_body = {}
@@ -49,15 +53,17 @@ function _Util.post(url, appid, eventArrayJson, isDebug)
         count = count + 1
     end
     if count >= 3 then
-        return res, code, request_body
+        return -1, code, request_body
     end
+    local resultCode
     local resultJson = cjson.decode(res)
     if isDebug then
-        if tonumber(resultJson["errorLevel"]) ~= 0 then
+        resultCode = tonumber(resultJson["errorLevel"])
+        if resultCode ~= 0 then
             print("Error: Up failed, result: " .. res)
         end
     else
-        local resultCode = tonumber(resultJson["code"])
+        resultCode = tonumber(resultJson["code"])
         if resultCode ~= 0 then
             local msg = resultJson["msg"]
             if msg == nil or #msg == 0 then
@@ -75,7 +81,7 @@ function _Util.post(url, appid, eventArrayJson, isDebug)
         end
     end
 
-    return res, code, request_body
+    return resultCode, code, request_body
 end
 
 function isWindows()
@@ -161,7 +167,7 @@ end
 
 function _Util.writeFile(fileName, eventArrayJson)
     if #eventArrayJson == 0 then
-        return ""
+        return false
     end
     local file = assert(io.open(fileName, 'a'))
     local data = ""
@@ -172,7 +178,7 @@ function _Util.writeFile(fileName, eventArrayJson)
     file:write(data)
     file:close()
     file = nil
-    return data
+    return true
 end
 
 function _Util.getFileName(filePath, fileNamePrefix, rule)

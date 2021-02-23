@@ -47,7 +47,7 @@ TdSDK = class(function(self, consumer)
 end)
 
 --DebugConsumer
-TdSDK.DebugConsumer = class(function(self, url, appid)
+TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly)
     if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
         error("appid不能为空.")
     end
@@ -56,15 +56,19 @@ TdSDK.DebugConsumer = class(function(self, url, appid)
     end
     self.url = url .. "/data_debug"
     self.appid = appid
+    self.debugOnly = debugOnly
 end)
 function TdSDK.DebugConsumer:add(msg)
     if (msg == nil) then
         Util.log("Error: ", "数据为空！")
-        return
+        return false
     end
-    local resp, code, body = Util.post(self.url, self.appid, msg, true)
-    Util.log("Info: ", "同步发送到: " .. self.url .. " 返回Code:[" .. code .. "]\nBody: " .. body .. "\n返回: " .. resp)
-    return body
+    local returnCode, code, body = Util.post(self.url, self.appid, msg, true, self.debugOnly)
+    Util.log("Info: ", "同步发送到: " .. self.url .. " 返回Code:[" .. code .. "]\nBody: " .. body .. "\n返回: " .. returnCode)
+    if (returnCode == 0) then
+        return true
+    end
+    return false
 end
 function TdSDK.DebugConsumer:flush()
 end
@@ -95,22 +99,27 @@ end)
 function TdSDK.BatchConsumer:add(msg)
     if (msg == nil) then
         Util.log("Error: ", "数据为空！")
-        return
+        return false
     end
     local num = #self.eventArrayJson + 1
     self.eventArrayJson[num] = msg
     if (num >= self.batchNum) then
-        self:flush()
+        return self:flush()
     end
-    return num
+    return true
 end
 function TdSDK.BatchConsumer:flush()
     if #self.eventArrayJson == 0 then
-        return ""
+        return true
     end
-    local _, _, body = Util.post(self.url, self.appid, self.eventArrayJson, false)
-    self.eventArrayJson = {}
-    return body
+    local returnCode, code, _ = Util.post(self.url, self.appid, self.eventArrayJson, false)
+    if (code == 200) then
+        self.eventArrayJson = {}
+    end
+    if (returnCode ~= 0) then
+        return false
+    end
+    return true
 end
 function TdSDK.BatchConsumer:close()
     self:flush()
@@ -155,7 +164,7 @@ function TdSDK.LogConsumer:add(msg)
 end
 function TdSDK.LogConsumer:flush()
     if #self.eventArrayJson == 0 then
-        return ""
+        return true
     end
     local isFileNameChange = false
     if self.rule == TdSDK.LOG_RULE.HOUR then
@@ -177,9 +186,11 @@ function TdSDK.LogConsumer:flush()
     if self.count then
         fileName = self.fileName .. "_" .. self.count
     end
-    local body = Util.writeFile(fileName, self.eventArrayJson)
-    self.eventArrayJson = {}
-    return body
+    local result = Util.writeFile(fileName, self.eventArrayJson)
+    if (result) then
+        self.eventArrayJson = {}
+    end
+    return true
 end
 function TdSDK.LogConsumer:close()
     self:flush()
