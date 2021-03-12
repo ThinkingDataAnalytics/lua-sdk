@@ -5,9 +5,9 @@ local APP_ID = "APP_ID"
 local PUSH_URL = "http://localhost:port"
 
 --初始化
-local consumer = TdSDK.BatchConsumer(PUSH_URL, APP_ID)  --批量收集器
---consumer = TdSDK.DebugConsumer(POST_URL, APP_ID)    --调试收集器
---consumer = TdSDK.LogConsumer("/tmp/data", TdSDK.LOG_RULE.HOUR, 20, 1) --本地文件收集器
+--local consumer = TdSDK.BatchConsumer(PUSH_URL, APP_ID)  --批量收集器
+--local consumer = TdSDK.DebugConsumer(POST_URL, APP_ID)    --调试收集器
+local consumer = TdSDK.LogConsumer("/", TdSDK.LOG_RULE.HOUR, 20, 1) --本地文件收集器
 local sdk = TdSDK(consumer)
 
 local distinctId = "1234567890987654321"

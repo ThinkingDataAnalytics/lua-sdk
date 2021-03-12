@@ -63,8 +63,8 @@ function TdSDK.DebugConsumer:add(msg)
         Util.log("Error: ", "数据为空！")
         return false
     end
-    local returnCode, code, body = Util.post(self.url, self.appid, msg, true, self.debugOnly)
-    Util.log("Info: ", "同步发送到: " .. self.url .. " 返回Code:[" .. code .. "]\nBody: " .. body .. "\n返回: " .. returnCode)
+    local returnCode, code = Util.post(self.url, self.appid, msg, true, self.debugOnly)
+    Util.log("Info: ", "同步发送到: " .. self.url .. " 返回Code:[" .. code .. "]\nBody: " .. Util.toJson(msg) .. "\n返回: " .. returnCode)
     if (returnCode == 0) then
         return true
     end
@@ -81,7 +81,7 @@ function TdSDK.DebugConsumer:toString()
 end
 
 --BatchConsumer
-TdSDK.BatchConsumer = class(function(self, url, appid, batchNum)
+TdSDK.BatchConsumer = class(function(self, url, appid, batchNum, cacheCapacity)
     if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
         error("appid不能为空。")
     end
@@ -95,6 +95,8 @@ TdSDK.BatchConsumer = class(function(self, url, appid, batchNum)
     self.appid = appid
     self.batchNum = batchNum or TdSDK.batchNumber
     self.eventArrayJson = {}
+    self.cacheCapacity = cacheCapacity or TdSDK.cacheCapacity
+    self.cacheTable = {}
 end)
 function TdSDK.BatchConsumer:add(msg)
     if (msg == nil) then
@@ -103,26 +105,45 @@ function TdSDK.BatchConsumer:add(msg)
     end
     local num = #self.eventArrayJson + 1
     self.eventArrayJson[num] = msg
-    if (num >= self.batchNum) then
+    if (num >= self.batchNum or #self.cacheTable > 0) then
         return self:flush()
     end
     return true
 end
-function TdSDK.BatchConsumer:flush()
-    if #self.eventArrayJson == 0 then
+function TdSDK.BatchConsumer:flush(flag)
+    if #self.eventArrayJson == 0 and #self.cacheTable == 0 then
         return true
     end
-    local returnCode, code, _ = Util.post(self.url, self.appid, self.eventArrayJson, false)
-    if (code == 200) then
+    if (flag or #self.eventArrayJson >= self.batchNum or #self.cacheTable == 0) then
+        local events = self.eventArrayJson
         self.eventArrayJson = {}
+        table.insert(self.cacheTable, events)
     end
-    if (returnCode ~= 0) then
-        return false
+    while (#self.cacheTable > 0)
+    do
+        local events = self.cacheTable[1]
+        local returnCode, code = Util.post(self.url, self.appid, events)
+        if (code == 200) then
+            table.remove(self.cacheTable, 1)
+        else
+            if (#self.cacheTable > self.cacheCapacity) then
+                table.remove(self.cacheTable, 1)
+            end
+            return false
+        end
+        if (not flag) then
+            if (returnCode ~= 0) then
+                return false
+            else
+                return true
+            end
+        end
     end
+
     return true
 end
 function TdSDK.BatchConsumer:close()
-    self:flush()
+    return self:flush(true)
 end
 function TdSDK.BatchConsumer:toString()
     return "\n--Consumer: BatchConsumer" ..
@@ -454,7 +475,7 @@ function divide(properties)
     local presetProperties = {}
     local finalProperties = {}
     for key, value in pairs(properties) do
-        if (key == "#ip" or key == "#uuid" or key == "#first_check_id" or key == "#time") then
+        if (key == "#ip" or key == "#uuid" or key == "#first_check_id" or key == "#time" or key == "#app_id") then
             presetProperties[key] = value
         else
             finalProperties[key] = value
@@ -517,13 +538,18 @@ function TdSDK:flush()
     self.consumer:flush()
 end
 
+function TdSDK:close()
+    self.consumer:close()
+end
+
 function TdSDK:toString()
     return self.consumer:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.1.0"
-TdSDK.batchNumber = 10
+TdSDK.version = "1.2.0"
+TdSDK.batchNumber = 20
+TdSDK.cacheCapacity = 50
 TdSDK.logModePath = "."
 
 TdSDK.LOG_RULE = {}

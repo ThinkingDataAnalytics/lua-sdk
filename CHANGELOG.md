@@ -1,3 +1,6 @@
+**1.2.0** (2021/03/12)
+- BatchConsumer模式增加可设置最大缓存值
+
 **1.1.1** (2021/02/23)
 - 增加DebugConsumer模式的debugOnly功能
 - BatchConsumer模式在因网络问题发送失败时不删除数据

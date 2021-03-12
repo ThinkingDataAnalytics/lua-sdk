@@ -8,7 +8,7 @@ local cjson = require("cjson")
 
 function _Util.post(url, appid, eventArrayJson, isDebug, debugOnly)
     if not isDebug and #eventArrayJson == 0 then
-        return "", "", ""
+        return "", ""
     end
     local request_body = toJson(eventArrayJson)
     local contentType = "application/json"
@@ -53,7 +53,7 @@ function _Util.post(url, appid, eventArrayJson, isDebug, debugOnly)
         count = count + 1
     end
     if count >= 3 then
-        return -1, code, request_body
+        return -1, code
     end
     local resultCode
     local resultJson = cjson.decode(res)
@@ -81,7 +81,7 @@ function _Util.post(url, appid, eventArrayJson, isDebug, debugOnly)
         end
     end
 
-    return resultCode, code, request_body
+    return resultCode, code
 end
 
 function isWindows()
@@ -89,6 +89,10 @@ function isWindows()
     local osName = os.getenv("OS")
     local isWindows = (separator == '\\' or (osName ~= nil and startWith(string.lower(osName), "windows")))
     return isWindows
+end
+
+function _Util.toJson(eventArrayJson)
+    return cjson.encode(eventArrayJson)
 end
 
 function toJson(eventArrayJson)
