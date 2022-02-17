@@ -19,7 +19,7 @@ properties["productNames"] = { "Lua入门", "Lua从精通到放弃" }
 properties["productType"] = "Lua书籍"
 properties["producePrice"] = 80
 properties["shop"] = "xx网上书城"
-sdk:track(distinctId, accountId, "ViewProduct", properties)
+sdk:track(accountId, distinctId, "ViewProduct", properties)
 properties = nil
 
 --设置公共属性
