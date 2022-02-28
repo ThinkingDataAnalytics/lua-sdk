@@ -519,8 +519,8 @@ function checkKV(properties, eventName)
         end
         if (type(value) == "table") then
             for k, v in pairs(value) do
-                if (type(v) ~= "string" and type(v) ~= "number" and type(v) ~= "boolean") then
-                    Util.log("Warn: ", "The table property " .. k .. " is not number, string, boolean.")
+                if (type(v) ~= "string" and type(v) ~= "number" and type(v) ~= "boolean" and type(v) ~= "table") then
+                    Util.log("Warn: ", "The table property " .. k .. " is not number, string, boolean, table.")
                 end
             end
         end
@@ -547,7 +547,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.2.0"
+TdSDK.version = "1.3.0"
 TdSDK.batchNumber = 20
 TdSDK.cacheCapacity = 50
 TdSDK.logModePath = "."

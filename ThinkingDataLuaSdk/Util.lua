@@ -132,7 +132,9 @@ function _Util.mergeTables(...)
         if origin then
             if tabs[i] then
                 for k, v in pairs(tabs[i]) do
-                    origin[k] = v
+                    if (v ~= nil) then
+                        origin[k] = v
+                    end
                 end
             end
         else
