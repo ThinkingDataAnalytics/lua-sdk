@@ -44,7 +44,14 @@ TdSDK = class(function(self, consumer)
     end
     self.consumer = consumer
     self.superProperties = {}
+    self.dynamicSuperPropertiesTracker = nil
 end)
+
+--TADynamicSuperPropertiesTracker
+TdSDK.TADynamicSuperPropertiesTracker = class()
+
+function TdSDK.TADynamicSuperPropertiesTracker:getProperties()
+end
 
 --DebugConsumer
 TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly)
@@ -224,6 +231,15 @@ function TdSDK.LogConsumer:toString()
 end
 
 --[[
+     * 设置动态公共属性,之后每次发送的消息体中都获取该属性值
+     * @param params 属性
+--]]
+function TdSDK:setDynamicSuperProperties(callback)
+    if callback ~= nil then
+        self.dynamicSuperPropertiesTracker = callback
+    end
+end
+--[[
      * 注册公共属性,注册后每次发送的消息体中都包含该属性值
      * @param params 属性
 --]]
@@ -335,6 +351,21 @@ function TdSDK:userAppend(accountId, distinctId, properties)
     end
 end
 --[[
+     * 追加用户列表类型的属性 去重
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param properties 事件属性
+--]]
+function TdSDK:userUniqueAppend(accountId, distinctId, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_uniq_append", nil, nil, properties)
+    if ok then
+        Util.log("Info: ", "调用userUniqueAppend方法: 成功")
+        return ret
+    else
+        Util.log("Error: ", "调用userUniqueAppend方法错误: ", ret)
+    end
+end
+--[[
      * 删除用户属性
      * @param distinctId 未登录用户ID
      * @param accountId 登录用户ID
@@ -376,12 +407,38 @@ end
      * @param properties 事件属性
 --]]
 function TdSDK:track(accountId, distinctId, eventName, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, "", properties, self.superProperties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, "", properties, self.superProperties, self.dynamicSuperPropertiesTracker)
     if ok then
         Util.log("Info: ", "调用track方法: 成功")
         return ret
     else
         Util.log("Error: ", "调用track方法错误: ", ret)
+    end
+end
+--[[
+     * 首次事件
+     * @param distinctId 未登录用户ID
+     * @param accountId 登录用户ID
+     * @param eventName 事件名称
+     * @param firstCheckId 首次事件维度ID
+     * @param properties 事件属性
+--]]
+function TdSDK:trackFirst(accountId, distinctId, eventName, firstCheckId, properties)
+    local mProperties = {}
+    for i,v in ipairs(properties) do
+        mProperties[i] = v
+    end
+    if firstCheckId ~= nil and string.len(firstCheckId) ~= 0 then
+        mProperties["#first_check_id"] = tostring(firstCheckId)
+    else
+        mProperties["#first_check_id"] = tostring(distinctId)
+    end
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, nil, mProperties, self.superProperties, self.dynamicSuperPropertiesTracker)
+    if ok then
+        Util.log("Info: ", "调用trackFirst方法: 成功")
+        return ret
+    else
+        Util.log("Error: ", "调用trackFirst方法错误: ", ret)
     end
 end
 --[[
@@ -393,7 +450,7 @@ end
      * @param properties 事件属性
 --]]
 function TdSDK:trackUpdate(accountId, distinctId, eventName, eventId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_update", eventName, eventId, properties, self.superProperties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_update", eventName, eventId, properties, self.superProperties, self.dynamicSuperPropertiesTracker)
     if ok then
         Util.log("Info: ", "调用track_update方法: 成功")
         return ret
@@ -410,7 +467,7 @@ end
      * @param properties 事件属性
 --]]
 function TdSDK:trackOverwrite(accountId, distinctId, eventName, eventId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_overwrite", eventName, eventId, properties, self.superProperties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_overwrite", eventName, eventId, properties, self.superProperties, self.dynamicSuperPropertiesTracker)
     if ok then
         Util.log("Info: ", "调用track_overwrite方法: 成功")
         return ret
@@ -429,10 +486,15 @@ end
      * @param properties 属性
      * @param super 公共属性
 --]]
-function upload(consumer, distinctId, accountId, eventType, eventName, eventId, properties, superProperties)
+function upload(consumer, distinctId, accountId, eventType, eventName, eventId, properties, superProperties, dynamicSuperPropertiesTracker)
     local finalProperties, presetProperties = divide(properties)
-    check(distinctId, accountId, eventType, eventName, eventId, finalProperties)
-
+    local dynamicSuperProperties = {}
+    if dynamicSuperPropertiesTracker ~= nil then
+        dynamicSuperProperties = dynamicSuperPropertiesTracker:getProperties()
+        check(distinctId, accountId, eventType, eventName, eventId, finalProperties, dynamicSuperProperties)
+    else
+        check(distinctId, accountId, eventType, eventName, eventId, finalProperties)
+    end
     local eventJson = {}
     if accountId ~= nil and string.len(accountId) ~= 0 then
         eventJson["#account_id"] = tostring(accountId)
@@ -457,6 +519,7 @@ function upload(consumer, distinctId, accountId, eventType, eventName, eventId, 
 
     local mergeProperties = {}
     mergeProperties = Util.mergeTables(mergeProperties, superProperties)
+    mergeProperties = Util.mergeTables(mergeProperties, dynamicSuperProperties)
     mergeProperties = Util.mergeTables(mergeProperties, finalProperties)
     if eventType == "track" or eventType == "track_update" or eventType == "track_overwrite" then
         mergeProperties["#lib"] = TdSDK.platForm
@@ -481,15 +544,22 @@ function divide(properties)
             finalProperties[key] = value
         end
     end
+    if (presetProperties["#uuid"] == nil) then
+        presetProperties["#uuid"] = Util.create_uuid()
+    end
     return finalProperties, presetProperties
 end
 
-function check(distinctId, accountId, eventType, eventName, eventId, properties)
+function check(distinctId, accountId, eventType, eventName, eventId, properties, dynamicSuperProperties)
     assert(distinctId == nil or type(distinctId) == "string" or type(distinctId) == "number", "distinctId参数应该为数字或字符串")
     assert(accountId == nil or type(accountId) == "string" or type(accountId) == "number", "accountId参数应该为数字或字符串")
     assert(type(eventType) == "string", "type参数应该为字符串类型")
     assert(eventName == nil or type(eventName) == "string", "eventName应该为字符串类型")
     assert(type(properties) == "table", "properties应该为Table类型")
+    if dynamicSuperProperties ~= nil then
+        assert(type(dynamicSuperProperties) == "table", "dynamicSuperProperties应该为Table类型")
+        checkKV(dynamicSuperProperties, eventName)
+    end
     --校验字段
     if ((distinctId == nil or string.len(distinctId) == 0) and (accountId == nil or string.len(accountId) == 0)) then
         error("distinctId和accountId不能同时为空！")
@@ -547,7 +617,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.3.0"
+TdSDK.version = "1.4.0"
 TdSDK.batchNumber = 20
 TdSDK.cacheCapacity = 50
 TdSDK.logModePath = "."

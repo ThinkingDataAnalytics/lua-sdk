@@ -5,13 +5,23 @@ local APP_ID = "APP_ID"
 local PUSH_URL = "http://localhost:port"
 
 --初始化
---local consumer = TdSDK.BatchConsumer(PUSH_URL, APP_ID)  --批量收集器
+local consumer = TdSDK.BatchConsumer(PUSH_URL, APP_ID)  --批量收集器
 --local consumer = TdSDK.DebugConsumer(POST_URL, APP_ID)    --调试收集器
-local consumer = TdSDK.LogConsumer("/", TdSDK.LOG_RULE.HOUR, 20, 1) --本地文件收集器
+-- local consumer = TdSDK.LogConsumer("./", TdSDK.LOG_RULE.HOUR, 20, 1) --本地文件收集器
 local sdk = TdSDK(consumer)
 
 local distinctId = "1234567890987654321"
 local accountId = nil
+
+--动态公共属性
+ChildTracker = class(TdSDK.TADynamicSuperPropertiesTracker)
+function ChildTracker:getProperties()
+	properties = {}
+	properties["DynamicKey"] = "DynamicValue"
+	return properties
+end
+
+sdk:setDynamicSuperProperties(ChildTracker)
 
 --浏览商品
 local properties = {}
@@ -19,7 +29,7 @@ properties["productNames"] = { "Lua入门", "Lua从精通到放弃" }
 properties["productType"] = "Lua书籍"
 properties["producePrice"] = 80
 properties["shop"] = "xx网上书城"
-sdk:track(distinctId, accountId, "ViewProduct", properties)
+sdk:track(accountId, distinctId, "ViewProduct", properties)
 properties = nil
 
 --设置公共属性
@@ -87,6 +97,16 @@ properties["productNumber"] = 1
 properties["price"] = 80
 properties["paymentMethod"] = "AliPay"
 sdk:track(accountId, distinctId, "Payment", properties)
+
+--user_uniq_append追加属性
+local profiles_uniq_append = {}
+profiles_uniq_append["append"] = {"test_append", "test_append1"}
+sdk:userUniqueAppend(accountId, distinctId, profiles_uniq_append)
+
+--首次事件
+properties = {}
+properties["firstKey"] = "firstValue"
+sdk:trackFirst(accountId, distinctId, "first_event_test", "test_first_check_id", properties)
 
 sdk:flush()
 
