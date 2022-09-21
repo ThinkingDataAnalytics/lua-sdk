@@ -1,13 +1,13 @@
 --Demo
 local TdSDK = require "ThinkingDataSdk"
 local APP_ID = "1b1c1fef65e3482bad5c9d0e6a823356"
-local PUSH_URL = "https://receiver.ta.thinkingdata.cn"
+local PUSH_URL = "http://receiver.ta.thinkingdata.cn"
 
 --初始化
 -- local consumer = TdSDK.BatchConsumer(PUSH_URL, APP_ID)  --批量收集器
-local consumer = TdSDK.DebugConsumer(PUSH_URL, APP_ID)    --调试收集器
--- local consumer = TdSDK.LogConsumer("./", TdSDK.LOG_RULE.HOUR, 20, 20) --本地文件收集器
-local sdk = TdSDK(consumer, false, false)
+-- local consumer = TdSDK.DebugConsumer(PUSH_URL, APP_ID)    --调试收集器
+local consumer = TdSDK.LogConsumer("./", TdSDK.LOG_RULE.HOUR, 20, 20) --本地文件收集器
+local sdk = TdSDK(consumer, false,false)
 
 local distinctId = "1234567890987654321"
 local accountId = nil
@@ -22,34 +22,40 @@ end
 
 sdk:setDynamicSuperProperties(ChildTracker)
 
+
+--设置公共属性
+local superProperties = {}
+superProperties["sex"] = "male" --性别
+superProperties["age"] = 23 --年龄
+TdSDK:setSuperProperties(superProperties)
+superProperties = nil
+
 --浏览商品
 local properties = {}
 properties["productNames"] = { "Lua入门", "Lua从精通到放弃" }
 properties["productType"] = "Lua书籍"
 properties["producePrice"] = 80
 properties["shop"] = "xx网上书城"
+properties["#os"] = "1.1.1.1"
 properties["date"] = os.date()
 properties["date1"] = os.date("%Y-%m-%d %H:%M:%S")
+properties["sex"] = 'female';
 sdk:track(accountId, distinctId, "ViewProduct", properties)
-properties = nil
+-- properties = nil
 
---设置公共属性
--- local superProperties = {}
--- superProperties["sex"] = "male" --性别
--- superProperties["age"] = 23 --年龄
--- TdSDK:setSuperProperties(superProperties)
--- superProperties = nil
+
 -- --用户信息设置
--- local profiles = {}
--- profiles["#city"] = "北京"        --城市
--- profiles["#province"] = "北京"  --省份
--- profiles["nickName"] = "昵称123"--昵称
--- profiles["userLevel"] = 0        --用户级别
--- profiles["userPoint"] = 0        --用户积分
--- local interestList = { "户外活动", "足球赛事", "游戏" }
--- profiles["interest"] = interestList --用户兴趣爱好
--- sdk:userSet(accountId, distinctId, profiles)
--- profiles = nil
+local profiles = {}
+profiles["#city"] = "北京"        --城市
+profiles["#province"] = "北京"  --省份
+profiles["nickName"] = "昵称123"--昵称
+profiles["userLevel"] = 0        --用户级别
+profiles["userPoint"] = 0        --用户积分
+profiles["#os"] = "1.2.3"
+local interestList = { "户外活动", "足球赛事", "游戏" }
+profiles["interest"] = interestList --用户兴趣爱好
+sdk:userSet(accountId, distinctId, profiles)
+profiles = nil
 
 -- --用户注册时间
 -- local profile_age = {}

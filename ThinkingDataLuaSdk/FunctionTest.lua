@@ -14,7 +14,7 @@ describe("LoggerConsumer Test #Log", function()
   distinctId = "1234567890987654321"
   accountId = 'Test'
   properties = {}
-  properties["productNames"] = { "Lua入门", "Lua从精通到放弃" }
+  properties["productNames"] = { "Lua入门", "Lua从精通到放弃" } 
   properties["productType"] = "Lua书籍"
   properties["producePrice"] = 80
   properties["shop"] = "xx网上书城"
@@ -31,7 +31,7 @@ end)
 
 describe("DebugConsumer Test #Debug", function()
   consumer = TdSDK.DebugConsumer(PUSH_URL, APP_ID) 
-  sdk = TdSDK(consumer, false, false)
+  sdk = TdSDK(consumer, false, true)
   distinctId = "1234567890987654321"
   accountId = 'Test'
   properties = {}

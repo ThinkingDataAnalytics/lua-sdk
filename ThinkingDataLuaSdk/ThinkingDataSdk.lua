@@ -514,15 +514,14 @@ function upload(consumer, distinctId, accountId, eventType, eventName, eventId, 
     if presetProperties["#time"] == nil then
         eventJson["#time"] = os.date("%Y-%m-%d %H:%M:%S")
     end
-
     local mergeProperties = {}
-    mergeProperties = Util.mergeTables(mergeProperties, superProperties)
-    mergeProperties = Util.mergeTables(mergeProperties, dynamicSuperProperties)
-    mergeProperties = Util.mergeTables(mergeProperties, finalProperties)
     if eventType == "track" or eventType == "track_update" or eventType == "track_overwrite" then
+        mergeProperties = Util.mergeTables(mergeProperties, superProperties)
+        mergeProperties = Util.mergeTables(mergeProperties, dynamicSuperProperties)
         mergeProperties["#lib"] = TdSDK.platForm
         mergeProperties["#lib_version"] = TdSDK.version
     end
+    mergeProperties = Util.mergeTables(mergeProperties, finalProperties)
     eventJson["properties"] = mergeProperties
     local ret = consumer:add(eventJson)
     presetProperties = nil
@@ -618,7 +617,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.5.0"
+TdSDK.version = "1.5.1"
 TdSDK.batchNumber = 20
 TdSDK.strictMode = false
 TdSDK.cacheCapacity = 50
