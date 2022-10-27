@@ -125,6 +125,7 @@ function TdSDK.BatchConsumer:flush(flag)
     do
         local events = self.cacheTable[1]
         local returnCode, code = Util.post(self.url, self.appid, events)
+        Util.log("Info: ", "同步发送到: " .. self.url .. " 返回Code:[" .. code .. "]\nBody: " .. Util.toJson(msg) .. "\n返回: " .. returnCode)
         if (code == 200) then
             table.remove(self.cacheTable, 1)
         else
@@ -192,24 +193,55 @@ function TdSDK.LogConsumer:flush()
     end
     local isFileNameChange = false
     if self.rule == TdSDK.LOG_RULE.HOUR then
-        isFileNameChange = self.currentFileTime ~= os.date("%Y-%m-%d %H")
+        isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
+                or Util.getHourFromDate(self.currentFileTime) ~= Util.getCurrentHour()
     else
-        isFileNameChange = string.sub(self.currentFileTime, 1, 11) ~= os.date("%Y-%m-%d")
+        isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
     end
 
     if isFileNameChange then
-        self.currentFileTime = os.date("%Y-%m-%d %H")
+        self.currentFileTime = os.date("%Y-%m-%d %H:%M:%S")
         self.fileName = Util.getFileName(self.logPath, self.fileNamePrefix, self.rule)
-        self.count = 0
+        self.count = nil
     end
-    local result, cCount, file = Util.writeFile(self.fileName, self.eventArrayJson, self.count, self.fileSize, isFileNameChange, self.file)
+    if self.fileSize and self.fileSize > 0 then
+        self.count = Util.getFileCount(self.fileName, self.fileSize, self.count)
+    end
+    local fileName = self.fileName
+    if self.count then
+        fileName = self.fileName .. "_" .. self.count
+    end
+    local result = Util.writeFile(fileName, self.eventArrayJson)
     if (result) then
-        self.count = cCount
-        self.file = file
         self.eventArrayJson = {}
     end
     return true
 end
+
+-- function TdSDK.LogConsumer:flush()
+--     if #self.eventArrayJson == 0 then
+--         return true
+--     end
+--     local isFileNameChange = false
+--     if self.rule == TdSDK.LOG_RULE.HOUR then
+--         isFileNameChange = self.currentFileTime ~= os.date("%Y-%m-%d %H")
+--     else
+--         isFileNameChange = string.sub(self.currentFileTime, 1, 11) ~= os.date("%Y-%m-%d")
+--     end
+
+--     if isFileNameChange then
+--         self.currentFileTime = os.date("%Y-%m-%d %H")
+--         self.fileName = Util.getFileName(self.logPath, self.fileNamePrefix, self.rule)
+--         self.count = 0
+--     end
+--     local result = Util.writeFile(self.fileName, self.eventArrayJson)
+--     if (result) then
+--         self.count = cCount
+--         self.file = file
+--         self.eventArrayJson = {}
+--     end
+--     return true
+-- end
 function TdSDK.LogConsumer:close()
     self:flush()
 end
@@ -617,7 +649,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.5.1"
+TdSDK.version = "1.5.2"
 TdSDK.batchNumber = 20
 TdSDK.strictMode = false
 TdSDK.cacheCapacity = 50
@@ -784,33 +816,24 @@ function Util.mkdirFolder(path)
     return path
 end
 
-function Util.writeFile(fileName, eventArrayJson, count, fileSize, close, file)
-    if #eventArrayJson == 0 then
-        return false, count, file
-    end
-    local cCount = count
-    local cFile = file
-    if close and cFile then
-        cFile:close()
-        cFile = nil
-        cCount = cCount + 1
-    end
 
-    if not cFile then
-        cFile = assert(io.open(fileName .. "_" .. cCount, 'a'))
+function Util.writeFile(fileName, eventArrayJson)
+    if #eventArrayJson == 0 then
+        return false
     end
-    if cFile:seek("end") < fileSize * 1024 * 1024 then
-        local data = ""
-        for i = 1, #eventArrayJson do
-            local json = toJson(eventArrayJson[i])
-            data = data .. json .. "\n"
-        end
-        cFile:write(data)
-        return true, cCount, cFile
-    else
-        return _Util.writeFile(fileName, eventArrayJson, cCount, fileSize, true, cFile)
+    local file = assert(io.open(fileName, 'a'))
+    local data = ""
+    for i = 1, #eventArrayJson do
+        local json = toJson(eventArrayJson[i])
+        data = data .. json .. "\n"
     end
+    file:write(data)
+    file:close()
+    file = nil
+    return true
 end
+  
+
 
 function Util.getFileName(filePath, fileNamePrefix, rule)
     local isWindows = isWindows()
@@ -898,6 +921,17 @@ function Util.create_uuid()
         string.sub(sid,17,20),
         string.sub(sid,21,32)
     )
+end
+function Util.getHourFromDate(dateString)
+    return string.sub(dateString, 12, 13)
+end
+
+function Util.getDateFromDateTime(dateTime)
+    return string.sub(dateTime, 1, 10)
+end
+function Util.getCurrentHour()
+    local t = os.date("%Y-%m-%d %H:%M:%S")
+    return string.sub(t, 12, 13)
 end
 Util.enableLog = false
 

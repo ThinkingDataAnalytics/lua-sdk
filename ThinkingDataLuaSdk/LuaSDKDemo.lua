@@ -3,11 +3,12 @@ local TdSDK = require "ThinkingDataSdk"
 local APP_ID = "1b1c1fef65e3482bad5c9d0e6a823356"
 local PUSH_URL = "http://receiver.ta.thinkingdata.cn"
 
+
 --初始化
 -- local consumer = TdSDK.BatchConsumer(PUSH_URL, APP_ID)  --批量收集器
 -- local consumer = TdSDK.DebugConsumer(PUSH_URL, APP_ID)    --调试收集器
 local consumer = TdSDK.LogConsumer("./", TdSDK.LOG_RULE.HOUR, 20, 20) --本地文件收集器
-local sdk = TdSDK(consumer, false,false)
+local sdk = TdSDK(consumer, false,true)
 
 local distinctId = "1234567890987654321"
 local accountId = nil
@@ -32,19 +33,19 @@ superProperties = nil
 
 --浏览商品
 local properties = {}
-properties["productNames"] = { "Lua入门", "Lua从精通到放弃" }
-properties["productType"] = "Lua书籍"
-properties["producePrice"] = 80
-properties["shop"] = "xx网上书城"
-properties["#os"] = "1.1.1.1"
-properties["date"] = os.date()
-properties["date1"] = os.date("%Y-%m-%d %H:%M:%S")
-properties["sex"] = 'female';
-sdk:track(accountId, distinctId, "ViewProduct", properties)
--- properties = nil
+-- properties["productNames"] = { "Lua入门", "Lua从精通到放弃" }
+-- properties["productType"] = "Lua书籍"
+-- properties["producePrice"] = 80
+-- properties["shop"] = "xx网上书城"
+-- properties["#os"] = "1.1.1.1"
+-- properties["date"] = os.date()
+-- properties["date1"] = os.date("%Y-%m-%d %H:%M:%S")
+-- properties["sex"] = 'female';
+sdk:track(accountId, distinctId, "current_online", properties)
+properties = nil
 
 
--- --用户信息设置
+-- 用户信息设置
 local profiles = {}
 profiles["#city"] = "北京"        --城市
 profiles["#province"] = "北京"  --省份
