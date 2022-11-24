@@ -56,7 +56,7 @@ function TdSDK.TADynamicSuperPropertiesTracker:getProperties()
 end
 
 --DebugConsumer
-TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly)
+TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly, deviceId)
     if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
         error("appid不能为空.")
     end
@@ -66,10 +66,11 @@ TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly)
     self.url = url .. "/data_debug"
     self.appid = appid
     self.debugOnly = debugOnly
+    self.deviceId = deviceId
     TdSDK.strictMode = true
 end)
 function TdSDK.DebugConsumer:add(msg)
-    local returnCode, code = Util.post(self.url, self.appid, msg, true, self.debugOnly)
+    local returnCode, code = Util.post(self.url, self.appid, msg, true, self.debugOnly, self.deviceId)
     Util.log("Info: ", "同步发送到: " .. self.url .. " 返回Code:[" .. code .. "]\nBody: " .. Util.toJson(msg) .. "\n返回: " .. returnCode)
     if (returnCode == 0) then
         return true
@@ -649,7 +650,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.5.2"
+TdSDK.version = "1.5.3"
 TdSDK.batchNumber = 20
 TdSDK.strictMode = false
 TdSDK.cacheCapacity = 50
@@ -664,7 +665,7 @@ local socket = require("socket")
 local http = require("socket.http")
 local ltn12 = require("ltn12")
 local cjson = require("cjson")
-function Util.post(url, appid, eventArrayJson, isDebug, debugOnly)
+function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
     if not isDebug and #eventArrayJson == 0 then
         return "", ""
     end
@@ -679,6 +680,9 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly)
         data =  urlEncode(request_body);
         request_body = urlEncode(request_body)
         request_body = "data=" .. request_body .. "&source=server&appid=" .. appid .. "&dryRun=" .. dryRun
+        if deviceId then
+           request_body = request_body .. "&deviceId=" .. deviceId 
+        end
         contentType = "application/x-www-form-urlencoded"
     end
     local response_body = {}

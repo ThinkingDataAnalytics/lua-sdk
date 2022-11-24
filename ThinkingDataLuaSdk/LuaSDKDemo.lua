@@ -1,12 +1,18 @@
 --Demo
 local TdSDK = require "ThinkingDataSdk"
-local APP_ID = "1b1c1fef65e3482bad5c9d0e6a823356"
-local PUSH_URL = "http://receiver.ta.thinkingdata.cn"
+local APP_ID = "appId"
+local PUSH_URL = "serverUrl"
 
 
 --初始化
 -- local consumer = TdSDK.BatchConsumer(PUSH_URL, APP_ID)  --批量收集器
--- local consumer = TdSDK.DebugConsumer(PUSH_URL, APP_ID)    --调试收集器
+
+-- 支持在TA后台 debug 模式实时查看数据
+-- local consumer = TdSDK.DebugConsumer(PUSH_URL, APP_ID, false, "DeviceId")    --调试收集器
+
+-- 通过接口验证数据的正确性
+-- local consumer = TdSDK.DebugConsumer(PUSH_URL, APP_ID, false)    --调试收集器
+
 local consumer = TdSDK.LogConsumer("./", TdSDK.LOG_RULE.HOUR, 20, 20) --本地文件收集器
 local sdk = TdSDK(consumer, false,true)
 
