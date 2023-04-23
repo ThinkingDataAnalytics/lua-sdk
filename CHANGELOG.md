@@ -1,27 +1,28 @@
-**1.5.3** (2022/11/24)
-- 支持TA后台实时debug模式
+### v1.5.4-beta.1
+**Date:** 2023/04/23
 
-**1.5.2** (2022/10/23)
-- 支持单个事件传入 #app_id 属性
+**Notes:**
 
-**1.4.0** (2022/04/26)
-- 支持创建默认事件uuid
-- 支持动态公共属性
-- 支持首次事件
-- 新增user_uniq_append事件
+* Support https
+* LogConsumer efficiency is improved
 
-**1.3.0** (2022/02/28)
-- 支持上传复杂结构类型
+### v1.5.3
+**Date:** 2022/11/24
 
-**1.2.0** (2021/03/12)
-- BatchConsumer模式增加可设置最大缓存值
+**Notes:**
 
-**1.1.1** (2021/02/23)
-- 增加DebugConsumer模式的debugOnly功能
-- BatchConsumer模式在因网络问题发送失败时不删除数据
+* Support debug mode in TE
 
-**1.1.0** (2021/01/13)
-- 修复指定文件大小时无法生成文件的错误
+### v1.5.2
+**Date:** 2022/10/27
 
-**1.0.0** (2020/11/20)
-- Lua SDK 1.0.0 版本上线
+**Notes:**
+
+* Optimize file writing methods
+
+### v1.5.1
+**Date:** 2022/09/21
+
+**Notes:**
+
+* Bugfix: If the Key of the user property starts with '#', the data sending exception occurs

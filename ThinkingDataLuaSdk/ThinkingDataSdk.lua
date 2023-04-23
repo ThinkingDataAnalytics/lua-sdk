@@ -1,5 +1,11 @@
 -- LuaSDK
-function class(base, _ctor)
+local socket = require("socket")
+local http = require("ssl.https")
+local ltn12 = require("ltn12")
+local cjson = require("cjson")
+local Util = {}
+
+local function class(base, _ctor)
     local c = {}
     if not _ctor and type(base) == 'function' then
         _ctor = base
@@ -35,579 +41,39 @@ function class(base, _ctor)
     return c
 end
 
-
---SDK
-TdSDK = class(function(self, consumer, strictMode, enableLog)
-    if consumer == nil or type(consumer) ~= "table" then
-        error("consumer参数不正确.")
+local function startWith(str, substr)
+    if str == nil or substr == nil then
+        return nil, "the string or the sub-stirng parameter is nil"
     end
-    self.consumer = consumer
-    self.checkKeyAndValue = strictMode or TdSDK.strictMode
-    self.superProperties = {}
-    self.dynamicSuperPropertiesTracker = nil
-    Util.enableLog = enableLog
-end)
-
-
---TADynamicSuperPropertiesTracker
-TdSDK.TADynamicSuperPropertiesTracker = class()
-
-function TdSDK.TADynamicSuperPropertiesTracker:getProperties()
-end
-
---DebugConsumer
-TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly, deviceId)
-    if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
-        error("appid不能为空.")
-    end
-    if url == nil or type(url) ~= "string" or string.len(url) == 0 then
-        error("上报地址不能为空.")
-    end
-    self.url = url .. "/data_debug"
-    self.appid = appid
-    self.debugOnly = debugOnly
-    self.deviceId = deviceId
-    TdSDK.strictMode = true
-end)
-function TdSDK.DebugConsumer:add(msg)
-    local returnCode, code = Util.post(self.url, self.appid, msg, true, self.debugOnly, self.deviceId)
-    Util.log("Info: ", "同步发送到: " .. self.url .. " 返回Code:[" .. code .. "]\nBody: " .. Util.toJson(msg) .. "\n返回: " .. returnCode)
-    if (returnCode == 0) then
+    if string.find(str, substr) ~= 1 then
+        return false
+    else
         return true
     end
-    return false
-end
-function TdSDK.DebugConsumer:flush()
-end
-function TdSDK.DebugConsumer:close()
-end
-function TdSDK.DebugConsumer:toString()
-    return "\n--Consumer: DebugConsumer" ..
-            "\n--Consumer.Url: " .. self.url ..
-            "\n--Consumer.Appid: " .. self.appid
 end
 
---BatchConsumer
-TdSDK.BatchConsumer = class(function(self, url, appid, batchNum, cacheCapacity)
-    if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
-        error("appid不能为空。")
-    end
-    if url == nil or type(url) ~= "string" or string.len(url) == 0 then
-        error("上报地址不能为空。")
-    end
-    if batchNum ~= nil and type(batchNum) ~= "number" then
-        error("批量条数应该为Number类型。")
-    end
-    self.url = url .. "/sync_server"
-    self.appid = appid
-    self.batchNum = batchNum or TdSDK.batchNumber
-    self.eventArrayJson = {}
-    self.cacheCapacity = cacheCapacity or TdSDK.cacheCapacity
-    self.cacheTable = {}
-end)
-function TdSDK.BatchConsumer:add(msg)
-    local num = #self.eventArrayJson + 1
-    self.eventArrayJson[num] = msg
-    if (num >= self.batchNum or #self.cacheTable > 0) then
-        return self:flush()
-    end
-    return true
-end
-function TdSDK.BatchConsumer:flush(flag)
-    if #self.eventArrayJson == 0 and #self.cacheTable == 0 then
-        return true
-    end
-    if (flag or #self.eventArrayJson >= self.batchNum or #self.cacheTable == 0) then
-        local events = self.eventArrayJson
-        self.eventArrayJson = {}
-        table.insert(self.cacheTable, events)
-    end
-    while (#self.cacheTable > 0)
-    do
-        local events = self.cacheTable[1]
-        local returnCode, code = Util.post(self.url, self.appid, events)
-        Util.log("Info: ", "同步发送到: " .. self.url .. " 返回Code:[" .. code .. "]\nBody: " .. Util.toJson(msg) .. "\n返回: " .. returnCode)
-        if (code == 200) then
-            table.remove(self.cacheTable, 1)
-        else
-            if (#self.cacheTable > self.cacheCapacity) then
-                table.remove(self.cacheTable, 1)
-            end
-            return false
-        end
-        if (not flag) then
-            if (returnCode ~= 0) then
-                return false
-            else
-                return true
-            end
-        end
-    end
-
-    return true
-end
-function TdSDK.BatchConsumer:close()
-    return self:flush(true)
-end
-function TdSDK.BatchConsumer:toString()
-    return "\n--Consumer: BatchConsumer" ..
-            "\n--Consumer.Url: " .. self.url ..
-            "\n--Consumer.Appid: " .. self.appid ..
-            "\n--Consumer.BatchNum: " .. self.batchNum
+local function fileExists(path)
+    local retTable = { os.execute("cd " .. path) }
+    local code = retTable[3] or retTable[1]
+    return code == 0
 end
 
---LogConsumer
-TdSDK.LogConsumer = class(function(self, logPath, rule, batchNum, fileSize, fileNamePrefix)
-    if logPath == nil or type(logPath) ~= "string" or string.len(logPath) == 0 then
-        error("日志目录不能为空.")
-    end
-    if rule ~= nil and type(rule) ~= "string" then
-        error("文件名规则参数错误.")
-    end
-
-    if batchNum ~= nil and type(batchNum) ~= "number" then
-        error("批量条数应该为Number类型.")
-    end
-    self.rule = rule or TdSDK.LOG_RULE.DAY
-    self.logPath = Util.mkdirFolder(logPath)
-    self.fileNamePrefix = fileNamePrefix
-    self.fileSize = fileSize
-    self.count = 0;
-    self.file = nil;
-    self.batchNum = batchNum or TdSDK.batchNumber
-    self.currentFileTime = os.date("%Y-%m-%d %H")
-    self.fileName = Util.getFileName(logPath, fileNamePrefix, self.rule)
-    self.eventArrayJson = {}
-    Util.log("Info: ", "LogConsumer生效, 日志目录为: " .. self.logPath .. " 文件切分方式: " .. self.rule)
-end)
-function TdSDK.LogConsumer:add(msg)
-    local num = #self.eventArrayJson + 1
-    self.eventArrayJson[num] = msg
-    if (num >= self.batchNum) then
-        self:flush()
-    end
-    return num
-end
-function TdSDK.LogConsumer:flush()
-    if #self.eventArrayJson == 0 then
-        return true
-    end
-    local isFileNameChange = false
-    if self.rule == TdSDK.LOG_RULE.HOUR then
-        isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
-                or Util.getHourFromDate(self.currentFileTime) ~= Util.getCurrentHour()
-    else
-        isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
-    end
-
-    if isFileNameChange then
-        self.currentFileTime = os.date("%Y-%m-%d %H:%M:%S")
-        self.fileName = Util.getFileName(self.logPath, self.fileNamePrefix, self.rule)
-        self.count = nil
-    end
-    if self.fileSize and self.fileSize > 0 then
-        self.count = Util.getFileCount(self.fileName, self.fileSize, self.count)
-    end
-    local fileName = self.fileName
-    if self.count then
-        fileName = self.fileName .. "_" .. self.count
-    end
-    local result = Util.writeFile(fileName, self.eventArrayJson)
-    if (result) then
-        self.eventArrayJson = {}
-    end
-    return true
+local function isWindows()
+    local separator = package.config:sub(1, 1)
+    local osName = os.getenv("OS")
+    local result = (separator == '\\' or (osName ~= nil and startWith(string.lower(osName), "windows")))
+    return result
 end
 
--- function TdSDK.LogConsumer:flush()
---     if #self.eventArrayJson == 0 then
---         return true
---     end
---     local isFileNameChange = false
---     if self.rule == TdSDK.LOG_RULE.HOUR then
---         isFileNameChange = self.currentFileTime ~= os.date("%Y-%m-%d %H")
---     else
---         isFileNameChange = string.sub(self.currentFileTime, 1, 11) ~= os.date("%Y-%m-%d")
---     end
-
---     if isFileNameChange then
---         self.currentFileTime = os.date("%Y-%m-%d %H")
---         self.fileName = Util.getFileName(self.logPath, self.fileNamePrefix, self.rule)
---         self.count = 0
---     end
---     local result = Util.writeFile(self.fileName, self.eventArrayJson)
---     if (result) then
---         self.count = cCount
---         self.file = file
---         self.eventArrayJson = {}
---     end
---     return true
--- end
-function TdSDK.LogConsumer:close()
-    self:flush()
-end
-function TdSDK.LogConsumer:toString()
-    return "\n--Consumer: LogConsumer" ..
-            "\n--Consumer.LogPath: " .. self.logPath ..
-            "\n--Consumer.Rule: " .. self.rule ..
-            "\n--Consumer.BatchNum: " .. self.batchNum
+local function urlEncode(s)
+    s = string.gsub(s, "([^%w%.%- ])", function(c)
+        return string.format("%%%02X", string.byte(c))
+    end)
+    return string.gsub(s, " ", "+")
 end
 
---[[
-     * 设置动态公共属性,之后每次发送的消息体中都获取该属性值
-     * @param params 属性
---]]
-function TdSDK:setDynamicSuperProperties(callback)
-    if callback ~= nil then
-        self.dynamicSuperPropertiesTracker = callback
-    end
-end
---[[
-     * 注册公共属性,注册后每次发送的消息体中都包含该属性值
-     * @param params 属性
---]]
-function TdSDK:setSuperProperties(params)
-    if self.checkKeyAndValue == true then
-        local ok, ret = pcall(checkKV, params)
-        if not ok then
-            Util.log("Error: ", "注册公共属性错误: ", ret)
-            return
-        end
-    end
-
-    if (type(params) == "table") then
-        self.superProperties = Util.mergeTables(self.superProperties, params)
-    end
-end
-function TdSDK:setSuperProperty(key, value)
-    if (key ~= nil) then
-        local params = {}
-        params[key] = value
-        print(params[key])
-        self:setSuperProperties(params)
-    end
-end
---[[
-     * 移除公共属性
-     * @param key 属性Key
---]]
-function TdSDK:removeSuperProperty(key)
-    self.superProperties[key] = nil
-end
---[[
-     * 获取公共属性
-     * @param key 属性Key
-     * @return 该KEY的公共属性值
---]]
-function TdSDK:getSuperProperty(key)
-    Util.log("", "获取公共属性" .. key .. "值为: " .. self.superProperties[key])
-    return self.superProperties[key]
-end
---[[
-     * 获取公共属性
-     * @return 所有公共属性
---]]
-function TdSDK:getSuperProperties()
-    return self.superProperties
-end
---清除公共属性
-function TdSDK:clearSuperProperties()
-    self.superProperties = {}
-end
-
---[[
-     * 设置用户的属性
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param properties 事件属性
---]]
-function TdSDK:userSet(accountId, distinctId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_set", nil, nil, properties, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用userSet方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用userSet方法错误: ", ret)
-    end
-end
---[[
-     * 首次设置用户的属性,该属性只在首次设置时有效
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param properties 事件属性
---]]
-function TdSDK:userSetOnce(accountId, distinctId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_setOnce", nil, nil, properties, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用userSetOnce方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用userSetOnce方法错误: ", ret)
-    end
-end
---[[
-     * 为用户的一个或多个数值类型的属性累加一个数值
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param properties 事件属性
---]]
-function TdSDK:userAdd(accountId, distinctId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_add", nil, nil, properties, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用userAdd方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用userAdd方法错误: ", ret)
-    end
-end
---[[
-     * 追加用户列表类型的属性
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param properties 事件属性
---]]
-function TdSDK:userAppend(accountId, distinctId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_append", nil, nil, properties, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用userAppend方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用userAppend方法错误: ", ret)
-    end
-end
---[[
-     * 追加用户列表类型的属性 去重
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param properties 事件属性
---]]
-function TdSDK:userUniqueAppend(accountId, distinctId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_uniq_append", nil, nil, properties, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用userUniqueAppend方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用userUniqueAppend方法错误: ", ret)
-    end
-end
---[[
-     * 删除用户属性
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param properties 事件属性
---]]
-function TdSDK:userUnset(accountId, distinctId, properties)
-    local unSetProperties = {}
-    for key, value in pairs(properties) do
-        if Util.startWith(key, '#')then
-            unSetProperties[key] = value
-        else
-            unSetProperties[key] = 0
-        end
-    end
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_unset", nil, nil, unSetProperties, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用userUnSet方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用userUnSet方法错误: ", ret)
-    end
-end
---[[
-     * 删除用户
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
---]]
-function TdSDK:userDel(accountId, distinctId)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_del", nil, nil, {}, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用userDelete方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用userDelete方法错误: ", ret)
-    end
-end
-
---[[
-     * 事件数据
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param eventName 事件名称
-     * @param properties 事件属性
---]]
-function TdSDK:track(accountId, distinctId, eventName, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, "", properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用track方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用track方法错误: ", ret)
-    end
-end
---[[
-     * 首次事件
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param eventName 事件名称
-     * @param firstCheckId 首次事件维度ID
-     * @param properties 事件属性
---]]
-function TdSDK:trackFirst(accountId, distinctId, eventName, firstCheckId, properties)
-    local mProperties = {}
-    for i,v in ipairs(properties) do
-        print(v)
-        mProperties[i] = v
-    end
-    Util.tablecopy(properties,mProperties)   
-    if firstCheckId ~= nil and string.len(firstCheckId) ~= 0 then
-        mProperties["#first_check_id"] = tostring(firstCheckId)
-    else
-        mProperties["#first_check_id"] = tostring(distinctId)
-    end
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, nil, mProperties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用trackFirst方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用trackFirst方法错误: ", ret)
-    end
-end
---[[
-     * 更新旧属性值
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param eventName 事件名称
-     * @param eventId 事件ID
-     * @param properties 事件属性
---]]
-function TdSDK:trackUpdate(accountId, distinctId, eventName, eventId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_update", eventName, eventId, properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用track_update方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用track_update方法错误: ", ret)
-    end
-end
---[[
-     * 覆盖所有旧属性
-     * @param distinctId 未登录用户ID
-     * @param accountId 登录用户ID
-     * @param eventName 事件名称
-     * @param eventId 事件ID
-     * @param properties 事件属性
---]]
-function TdSDK:trackOverwrite(accountId, distinctId, eventName, eventId, properties)
-    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_overwrite", eventName, eventId, properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
-    if ok then
-        Util.log("Info: ", "调用track_overwrite方法: 成功")
-        return ret
-    else
-        Util.log("Error: ", "调用track_overwrite方法错误: ", ret)
-    end
-end
-
---[[
-     * 上传数据,首先校验相关KEY和VALUE,符合规则才可以上传
-     * @param consumer 收集器
-     * @param distinctId 用户标识
-     * @param isLogin 是否登陆
-     * @param eventName 事件名称
-     * @param eventId 事件ID，结合eventName用于track_update和track_overwrite
-     * @param properties 属性
-     * @param super 公共属性
---]]
-function upload(consumer, distinctId, accountId, eventType, eventName, eventId, properties, superProperties, dynamicSuperPropertiesTracker, checkKeyAndValue)
-    local finalProperties, presetProperties = divide(properties)
-    local dynamicSuperProperties = {}
-    if dynamicSuperPropertiesTracker ~= nil then
-        dynamicSuperProperties = dynamicSuperPropertiesTracker:getProperties()
-        check(distinctId, accountId, eventType, eventName, eventId, finalProperties, dynamicSuperProperties, checkKeyAndValue)
-    else
-        check(distinctId, accountId, eventType, eventName, eventId, finalProperties, checkKeyAndValue)
-    end
-    local eventJson = {}
-    if accountId ~= nil and string.len(accountId) ~= 0 then
-        eventJson["#account_id"] = tostring(accountId)
-    end
-    if distinctId ~= nil and string.len(distinctId) ~= 0 then
-        eventJson["#distinct_id"] = tostring(distinctId)
-    end
-    eventJson["#type"] = eventType
-    if eventName ~= nil and string.len(eventName) ~= 0 then
-        eventJson["#event_name"] = tostring(eventName)
-    end
-    if eventId ~= nil and string.len(eventId) ~= 0 then
-        eventJson["#event_id"] = tostring(eventId)
-    end
-    --预置属性
-    for key, value in pairs(presetProperties) do
-        eventJson[key] = value
-    end
-    if presetProperties["#time"] == nil then
-        eventJson["#time"] = os.date("%Y-%m-%d %H:%M:%S")
-    end
-    local mergeProperties = {}
-    if eventType == "track" or eventType == "track_update" or eventType == "track_overwrite" then
-        mergeProperties = Util.mergeTables(mergeProperties, superProperties)
-        mergeProperties = Util.mergeTables(mergeProperties, dynamicSuperProperties)
-        mergeProperties["#lib"] = TdSDK.platForm
-        mergeProperties["#lib_version"] = TdSDK.version
-    end
-    mergeProperties = Util.mergeTables(mergeProperties, finalProperties)
-    eventJson["properties"] = mergeProperties
-    local ret = consumer:add(eventJson)
-    presetProperties = nil
-    finalProperties = nil
-    mergeProperties = nil
-    eventJson = nil
-    return ret
-end
-
-function divide(properties)
-    local presetProperties = {}
-    local finalProperties = {}
-    for key, value in pairs(properties) do
-        if (key == "#ip" or key == "#uuid" or key == "#first_check_id" or key == "#time" or key == "#app_id") then
-            presetProperties[key] = value
-        else
-            finalProperties[key] = value
-        end
-    end
-    if (presetProperties["#uuid"] == nil) then
-        presetProperties["#uuid"] = Util.create_uuid()
-    end
-    return finalProperties, presetProperties
-end
-
-function check(distinctId, accountId, eventType, eventName, eventId, properties, dynamicSuperProperties, checkKeyAndValue)
-    if checkKeyAndValue == nil or checkKeyAndValue == false then
-        return
-    end
-    assert(distinctId == nil or type(distinctId) == "string" or type(distinctId) == "number", "distinctId参数应该为数字或字符串")
-    assert(accountId == nil or type(accountId) == "string" or type(accountId) == "number", "accountId参数应该为数字或字符串")
-    assert(type(eventType) == "string", "type参数应该为字符串类型")
-    assert(eventName == nil or type(eventName) == "string", "eventName应该为字符串类型")
-    assert(type(properties) == "table", "properties应该为Table类型")
-    if dynamicSuperProperties ~= nil then
-        assert(type(dynamicSuperProperties) == "table", "dynamicSuperProperties应该为Table类型")
-        checkKV(dynamicSuperProperties, eventName)
-    end
-    --校验字段
-    if ((distinctId == nil or string.len(distinctId) == 0) and (accountId == nil or string.len(accountId) == 0)) then
-        error("distinctId和accountId不能同时为空！")
-    end
-    if (Util.startWith(eventType, "track") and (eventName == nil or string.len(eventName) == 0)) then
-        error("type为track、track_update或track_overwrite时，eventName不能为空！")
-    end
-    if (Util.startWith(eventType, "track_")  and (eventId == nil or string.len(eventId) == 0)) then
-        error("type为track_update或track_overwrite时，eventId不能为空！")
-    end
-    checkKV(properties, eventName)
-end
-
-function checkKV(properties, eventName)
-    --校验K/V
+local function checkKV(properties, eventName)
+    -- check K/V
     local userAdd = "user_add"
     local userUnset = "user_unset"
     for key, value in pairs(properties) do
@@ -637,6 +103,595 @@ function checkKV(properties, eventName)
     end
 end
 
+local function divide(properties)
+    local presetProperties = {}
+    local finalProperties = {}
+    for key, value in pairs(properties) do
+        if (key == "#ip" or key == "#uuid" or key == "#first_check_id" or key == "#time" or key == "#app_id") then
+            presetProperties[key] = value
+        else
+            finalProperties[key] = value
+        end
+    end
+    if (presetProperties["#uuid"] == nil) then
+        presetProperties["#uuid"] = Util.create_uuid()
+    end
+    return finalProperties, presetProperties
+end
+
+local function check(distinctId, accountId, eventType, eventName, eventId, properties, dynamicSuperProperties, checkKeyAndValue)
+    if checkKeyAndValue == nil or checkKeyAndValue == false then
+        return
+    end
+    assert(distinctId == nil or type(distinctId) == "string" or type(distinctId) == "number", "distinctId must be string or number type")
+    assert(accountId == nil or type(accountId) == "string" or type(accountId) == "number", "accountId must be string or number type")
+    assert(type(eventType) == "string", "type must be string type")
+    assert(eventName == nil or type(eventName) == "string", "eventName must be string type")
+    assert(type(properties) == "table", "properties must be Table type")
+    if dynamicSuperProperties ~= nil then
+        assert(type(dynamicSuperProperties) == "table", "dynamicSuperProperties must be Table type")
+        checkKV(dynamicSuperProperties, eventName)
+    end
+    -- check name
+    if ((distinctId == nil or string.len(distinctId) == 0) and (accountId == nil or string.len(accountId) == 0)) then
+        error("distinctId, accountId can't both be empty")
+    end
+    if (Util.startWith(eventType, "track") and (eventName == nil or string.len(eventName) == 0)) then
+        error("eventName can't be empty when the type is track or track_update or track_overwrite")
+    end
+    if (Util.startWith(eventType, "track_")  and (eventId == nil or string.len(eventId) == 0)) then
+        error("eventId can't be empty when the type is track_update or track_overwrite")
+    end
+    checkKV(properties, eventName)
+end
+
+--- uoload data
+---@param consumer any
+---@param distinctId any
+---@param accountId any
+---@param eventType any
+---@param eventName any
+---@param eventId any
+---@param properties any
+---@param superProperties any
+---@param dynamicSuperPropertiesTracker any
+---@param checkKeyAndValue any
+local function upload(consumer, distinctId, accountId, eventType, eventName, eventId, properties, superProperties, dynamicSuperPropertiesTracker, checkKeyAndValue)
+    local finalProperties, presetProperties = divide(properties)
+    local dynamicSuperProperties = {}
+    if dynamicSuperPropertiesTracker ~= nil and type(dynamicSuperPropertiesTracker) == "function" then
+        dynamicSuperProperties = dynamicSuperPropertiesTracker()
+        check(distinctId, accountId, eventType, eventName, eventId, finalProperties, dynamicSuperProperties, checkKeyAndValue)
+    else
+        check(distinctId, accountId, eventType, eventName, eventId, finalProperties, checkKeyAndValue)
+    end
+    local eventJson = {}
+    if accountId ~= nil and string.len(accountId) ~= 0 then
+        eventJson["#account_id"] = tostring(accountId)
+    end
+    if distinctId ~= nil and string.len(distinctId) ~= 0 then
+        eventJson["#distinct_id"] = tostring(distinctId)
+    end
+    eventJson["#type"] = eventType
+    if eventName ~= nil and string.len(eventName) ~= 0 then
+        eventJson["#event_name"] = tostring(eventName)
+    end
+    if eventId ~= nil and string.len(eventId) ~= 0 then
+        eventJson["#event_id"] = tostring(eventId)
+    end
+    -- preset properties
+    for key, value in pairs(presetProperties) do
+        eventJson[key] = value
+    end
+    if presetProperties["#time"] == nil then
+        local millTime = socket.gettime()
+        local prefixStr = os.date("%Y-%m-%d %H:%M:%S", math.floor(millTime))
+        local millStr = string.sub(string.format("%.3f", millTime%1), 2)
+        eventJson["#time"] = prefixStr .. millStr
+    end
+    local mergeProperties = {}
+    if eventType == "track" or eventType == "track_update" or eventType == "track_overwrite" then
+        mergeProperties = Util.mergeTables(mergeProperties, superProperties)
+        mergeProperties = Util.mergeTables(mergeProperties, dynamicSuperProperties)
+        mergeProperties["#lib"] = TdSDK.platForm
+        mergeProperties["#lib_version"] = TdSDK.version
+    end
+    mergeProperties = Util.mergeTables(mergeProperties, finalProperties)
+    eventJson["properties"] = mergeProperties
+    local ret = consumer:add(eventJson)
+    presetProperties = nil
+    finalProperties = nil
+    mergeProperties = nil
+    eventJson = nil
+    return ret
+end
+
+--- Construct SDK
+---@param self any
+---@param consumer any logConsuemr/batchConsumer/debugConsumer
+---@param strictMode boolean enable properties check
+---@param enableLog boolean enable log
+TdSDK = class(function(self, consumer, strictMode, enableLog)
+    if consumer == nil or type(consumer) ~= "table" then
+        error("consumer params is invalidate.")
+    end
+    self.consumer = consumer
+    self.checkKeyAndValue = strictMode or TdSDK.strictMode
+    self.superProperties = {}
+    self.dynamicSuperPropertiesTracker = nil
+    Util.enableLog = enableLog
+end)
+
+--- Construct debug consumer
+---@param self any
+---@param url string project url
+---@param appid string project app id
+---@param debugOnly boolean false: write data. true: No write data
+---@param deviceId string debug deviceId
+TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly, deviceId)
+    if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
+        error("appid can't be empty.")
+    end
+    if url == nil or type(url) ~= "string" or string.len(url) == 0 then
+        error("server url can't be empty.")
+    end
+    self.url = url .. "/data_debug"
+    self.appid = appid
+    self.debugOnly = debugOnly
+    self.deviceId = deviceId
+    TdSDK.strictMode = true
+end)
+
+function TdSDK.DebugConsumer:add(msg)
+    local returnCode, code = Util.post(self.url, self.appid, msg, true, self.debugOnly, self.deviceId)
+    Util.log("Info: ", "send to: " .. self.url .. " return Code:[" .. code .. "]\nBody: " .. Util.toJson(msg) .. "\nreturn: " .. returnCode)
+    if (returnCode == 0) then
+        return true
+    end
+    return false
+end
+function TdSDK.DebugConsumer:flush()
+end
+function TdSDK.DebugConsumer:close()
+end
+function TdSDK.DebugConsumer:toString()
+    return "\n--Consumer: DebugConsumer" ..
+            "\n--Consumer.Url: " .. self.url ..
+            "\n--Consumer.Appid: " .. self.appid
+end
+
+--- Construct BatchConsumer
+---@param self any
+---@param url any
+---@param appid any
+---@param batchNum any
+---@param cacheCapacity any
+TdSDK.BatchConsumer = class(function(self, url, appid, batchNum, cacheCapacity)
+    if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
+        error("appid can't be empty")
+    end
+    if url == nil or type(url) ~= "string" or string.len(url) == 0 then
+        error("server url can't be empty")
+    end
+    if batchNum ~= nil and type(batchNum) ~= "number" then
+        error("must be nummber type")
+    end
+    self.url = url .. "/sync_server"
+    self.appid = appid
+    self.batchNum = batchNum or TdSDK.batchNumber
+    self.eventArrayJson = {}
+    self.cacheCapacity = cacheCapacity or TdSDK.cacheCapacity
+    self.cacheTable = {}
+end)
+function TdSDK.BatchConsumer:add(msg)
+    local num = #self.eventArrayJson + 1
+    self.eventArrayJson[num] = msg
+    if (num >= self.batchNum or #self.cacheTable > 0) then
+        return self:flush()
+    else
+        Util.log("info: ", "add event to buffer")
+    end
+    return true
+end
+function TdSDK.BatchConsumer:flush(flag)
+    if #self.eventArrayJson == 0 and #self.cacheTable == 0 then
+        return true
+    end
+    if (flag or #self.eventArrayJson >= self.batchNum or #self.cacheTable == 0) then
+        local events = self.eventArrayJson
+        self.eventArrayJson = {}
+        table.insert(self.cacheTable, events)
+    end
+    while (#self.cacheTable > 0)
+    do
+        local events = self.cacheTable[1]
+        -- retry 3 times
+        local number = 3
+        local success = false
+        local returnCode
+        local code
+        while number > 0 and success == false do
+            returnCode, code = Util.post(self.url, self.appid, events)
+            Util.log("Info: ", "sent to: " .. self.url .. " Code:[" .. code .. "]\nBody: " .. Util.toJson(events) .. "\nreturn: " .. returnCode)
+            if (code == 200) then
+                success = true
+            else
+                success = false
+                number = number - 1
+            end
+        end
+
+        if (success) then
+            table.remove(self.cacheTable, 1)
+        else
+            if (#self.cacheTable > self.cacheCapacity) then
+                table.remove(self.cacheTable, 1)
+            end
+            return false
+        end
+        if (not flag) then
+            if (returnCode ~= 0) then
+                return false
+            else
+                return true
+            end
+        end
+    end
+
+    return true
+end
+function TdSDK.BatchConsumer:close()
+    return self:flush(true)
+end
+function TdSDK.BatchConsumer:toString()
+    return "\n--Consumer: BatchConsumer" ..
+            "\n--Consumer.Url: " .. self.url ..
+            "\n--Consumer.Appid: " .. self.appid ..
+            "\n--Consumer.BatchNum: " .. self.batchNum
+end
+
+--- Construct logConsumer
+---@param self any
+---@param logPath any
+---@param rule any
+---@param batchNum any
+---@param fileSize any
+---@param fileNamePrefix any
+TdSDK.LogConsumer = class(function(self, logPath, rule, batchNum, fileSize, fileNamePrefix)
+    if logPath == nil or type(logPath) ~= "string" or string.len(logPath) == 0 then
+        error("directory can't be empty.")
+    end
+    if rule ~= nil and type(rule) ~= "string" then
+        error("file name is invalidate.")
+    end
+
+    if batchNum ~= nil and type(batchNum) ~= "number" then
+        error("data is must be Number type.")
+    end
+    self.rule = rule or TdSDK.LOG_RULE.DAY
+    self.logPath = Util.mkdirFolder(logPath)
+    self.fileNamePrefix = fileNamePrefix
+    self.fileSize = fileSize
+    self.count = 0;
+    self.file = nil;
+    self.batchNum = batchNum or TdSDK.batchNumber
+    self.currentFileTime = os.date("%Y-%m-%d %H")
+    self.fileName = Util.getFileName(logPath, fileNamePrefix, self.rule)
+    self.eventArrayJson = {}
+end)
+
+-- retain file handler
+TdSDK.LogConsumer.fileHandler = nil
+
+function TdSDK.LogConsumer:add(msg)
+    local num = #self.eventArrayJson + 1
+    self.eventArrayJson[num] = msg
+    if (num >= self.batchNum) then
+        self:flush()
+    else
+        Util.log("info: ", "add event to buffer")
+    end
+    return num
+end
+function TdSDK.LogConsumer:flush()
+    if #self.eventArrayJson == 0 then
+        return true
+    end
+    Util.log("info: ", "flush data, count: ", #self.eventArrayJson)
+    local isFileNameChange = false
+    if self.rule == TdSDK.LOG_RULE.HOUR then
+        isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
+                or Util.getHourFromDate(self.currentFileTime) ~= Util.getCurrentHour()
+    else
+        isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
+    end
+
+    if isFileNameChange or self.fileHandler == nil then
+        self.currentFileTime = os.date("%Y-%m-%d %H:%M:%S")
+        self.fileName = Util.getFileName(self.logPath, self.fileNamePrefix, self.rule)
+        self.count = 0
+        -- close old file handler and create new file handler
+        if self.fileHandler then
+            self.fileHandler:close()
+        end
+        local logFileName = self.fileName .. "_" .. self.count
+        self.fileHandler = assert(io.open(logFileName, "a"))
+    else
+        if self.fileSize > 0 then
+            self.count, self.fileHandler = Util.getFileHandlerAndCount(self.fileHandler, self.fileName, self.fileSize, self.count)
+        end
+    end
+
+    local data = ""
+    for key, value in pairs(self.eventArrayJson) do
+        local json = Util.toJson(value)
+        data = data .. json .. "\n"
+    end
+
+    local result = self.fileHandler:write(data)
+    if (result) then
+        self.eventArrayJson = {}
+    else
+        Util.log("error", "data write failed. count: ", #self.eventArrayJson)
+    end
+
+    self.fileHandler:flush()
+    self.fileHandler:seek("end", 0)      
+
+    return true
+end
+function TdSDK.LogConsumer:close()
+    self:flush()
+    -- close old file handler
+    if self.fileHandler then
+        self.fileHandler:close()
+    end
+end
+function TdSDK.LogConsumer:toString()
+    return "\n--Consumer: LogConsumer" ..
+            "\n--Consumer.LogPath: " .. self.logPath ..
+            "\n--Consumer.Rule: " .. self.rule ..
+            "\n--Consumer.BatchNum: " .. self.batchNum
+end
+
+--- set dynamic common properties
+---@param callback any
+function TdSDK:setDynamicSuperProperties(callback)
+    if callback ~= nil then
+        self.dynamicSuperPropertiesTracker = callback
+    end
+end
+
+--- set common properties
+---@param params any
+function TdSDK:setSuperProperties(params)
+    if self.checkKeyAndValue == true then
+        local ok, ret = pcall(checkKV, params)
+        if not ok then
+            Util.log("Error: ", "common properties error: ", ret)
+            return
+        end
+    end
+
+    if (type(params) == "table") then
+        self.superProperties = Util.mergeTables(self.superProperties, params)
+    end
+end
+function TdSDK:setSuperProperty(key, value)
+    if (key ~= nil) then
+        local params = {}
+        params[key] = value
+        print(params[key])
+        self:setSuperProperties(params)
+    end
+end
+
+--- remove common properties with key
+---@param key any
+function TdSDK:removeSuperProperty(key)
+    if key == nil then
+        return nil
+    end
+    self.superProperties[key] = nil
+end
+
+--- find common properties with key
+---@param key any
+function TdSDK:getSuperProperty(key)
+    if key == nil then
+        return nil
+    end
+    return self.superProperties[key]
+end
+
+--- get all properties
+function TdSDK:getSuperProperties()
+    return self.superProperties
+end
+
+--- clear common properties
+function TdSDK:clearSuperProperties()
+    self.superProperties = {}
+end
+
+--- set user properties. would overwrite existing names
+---@param accountId any
+---@param distinctId any
+---@param properties any
+function TdSDK:userSet(accountId, distinctId, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_set", nil, nil, properties, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "userSet: success")
+        return ret
+    else
+        Util.log("Error: ", "userSet failed: ", ret)
+    end
+end
+
+--- set user properties, If such property had been set before, this message would be neglected.
+---@param accountId any
+---@param distinctId any
+---@param properties any
+function TdSDK:userSetOnce(accountId, distinctId, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_setOnce", nil, nil, properties, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "userSetOnce: success")
+        return ret
+    else
+        Util.log("Error: ", "userSetOnce failed: ", ret)
+    end
+end
+
+--- to accumulate operations against the property
+---@param accountId any
+---@param distinctId any
+---@param properties any
+function TdSDK:userAdd(accountId, distinctId, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_add", nil, nil, properties, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "userAdd: success")
+        return ret
+    else
+        Util.log("Error: ", "userAdd failed: ", ret)
+    end
+end
+
+--- to add user properties of array type
+---@param accountId any
+---@param distinctId any
+---@param properties any
+function TdSDK:userAppend(accountId, distinctId, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_append", nil, nil, properties, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "userAppend: success")
+        return ret
+    else
+        Util.log("Error: ", "userAppend failed: ", ret)
+    end
+end
+
+--- append user properties to array type by unique.
+---@param accountId any
+---@param distinctId any
+---@param properties any
+function TdSDK:userUniqueAppend(accountId, distinctId, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_uniq_append", nil, nil, properties, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "userUniqueAppend: success")
+        return ret
+    else
+        Util.log("Error: ", "userUniqueAppend failed: ", ret)
+    end
+end
+
+--- clear the user properties of users
+---@param accountId any
+---@param distinctId any
+---@param properties any
+function TdSDK:userUnset(accountId, distinctId, properties)
+    local unSetProperties = {}
+    for key, value in pairs(properties) do
+        if Util.startWith(key, '#')then
+            unSetProperties[key] = value
+        else
+            unSetProperties[key] = 0
+        end
+    end
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_unset", nil, nil, unSetProperties, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "userUnSet: success")
+        return ret
+    else
+        Util.log("Error: ", "userUnSet failed: ", ret)
+    end
+end
+
+--- delete a user, This operation cannot be undone
+---@param accountId any
+---@param distinctId any
+function TdSDK:userDel(accountId, distinctId)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_del", nil, nil, {}, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "userDelete: success")
+        return ret
+    else
+        Util.log("Error: ", "userDelete failed: ", ret)
+    end
+end
+
+--- report ordinary event
+---@param accountId any
+---@param distinctId any
+---@param eventName any
+---@param properties any
+function TdSDK:track(accountId, distinctId, eventName, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, "", properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
+    if ok then
+        return ret
+    else
+        Util.log("Error: ", "track failed: ", ret)
+    end
+end
+
+--- report first event.
+---@param accountId any
+---@param distinctId any
+---@param eventName any
+---@param firstCheckId string it is flag of the first event
+---@param properties any
+function TdSDK:trackFirst(accountId, distinctId, eventName, firstCheckId, properties)
+    local mProperties = {}
+    for i,v in ipairs(properties) do
+        print(v)
+        mProperties[i] = v
+    end
+    Util.tablecopy(properties,mProperties)   
+    if firstCheckId ~= nil and string.len(firstCheckId) ~= 0 then
+        mProperties["#first_check_id"] = tostring(firstCheckId)
+    else
+        mProperties["#first_check_id"] = tostring(distinctId)
+    end
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, nil, mProperties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "trackFirst: success")
+        return ret
+    else
+        Util.log("Error: ", "trackFirst failed: ", ret)
+    end
+end
+
+--- updatable event.
+---@param accountId any
+---@param distinctId any
+---@param eventName any
+---@param eventId any
+---@param properties any
+function TdSDK:trackUpdate(accountId, distinctId, eventName, eventId, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_update", eventName, eventId, properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "track_update: success")
+        return ret
+    else
+        Util.log("Error: ", "track_update failed: ", ret)
+    end
+end
+
+--- report overridable event.
+---@param accountId any
+---@param distinctId any
+---@param eventName any
+---@param eventId any
+---@param properties any
+function TdSDK:trackOverwrite(accountId, distinctId, eventName, eventId, properties)
+    local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_overwrite", eventName, eventId, properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
+    if ok then
+        Util.log("Info: ", "track_overwrite: success")
+        return ret
+    else
+        Util.log("Error: ", "track_overwrite failed: ", ret)
+    end
+end
+
 function TdSDK:flush()
     self.consumer:flush()
 end
@@ -650,7 +705,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.5.3"
+TdSDK.version = "1.5.4-beta.1"
 TdSDK.batchNumber = 20
 TdSDK.strictMode = false
 TdSDK.cacheCapacity = 50
@@ -660,24 +715,17 @@ TdSDK.LOG_RULE = {}
 TdSDK.LOG_RULE.HOUR = "%Y-%m-%d-%H"
 TdSDK.LOG_RULE.DAY = "%Y-%m-%d"
 
-Util = {}
-local socket = require("socket")
-local http = require("socket.http")
-local ltn12 = require("ltn12")
-local cjson = require("cjson")
 function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
     if not isDebug and #eventArrayJson == 0 then
         return "", ""
     end
-    local request_body = toJson(eventArrayJson)
-    print(request_body)
+    local request_body = Util.toJson(eventArrayJson)
     local contentType = "application/json"
     if isDebug then
         local dryRun = 0
         if debugOnly then
             dryRun = 1
         end
-        data =  urlEncode(request_body);
         request_body = urlEncode(request_body)
         request_body = "data=" .. request_body .. "&source=server&appid=" .. appid .. "&dryRun=" .. dryRun
         if deviceId then
@@ -690,13 +738,8 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
     local res, code
     while (count < 3)
     do
-        res, code = http.request {
+        local params = {
             url = url,
-            create = function()
-                local req_sock = socket.tcp()
-                req_sock:settimeout(30, 't')
-                return req_sock
-            end,
             method = "POST",
             headers = {
                 ["appid"] = appid;
@@ -706,9 +749,13 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
                 ["Content-Type"] = contentType;
                 ["Content-Length"] = #request_body;
             },
+            ssl_params = {
+                verify = "none"
+            },
             source = ltn12.source.string(request_body),
             sink = ltn12.sink.table(response_body),
         }
+        res, code = http.request(params)
         res = table.concat(response_body)
         if code ~= nil and type(code) == "number" and tonumber(code) == 200 then
             break
@@ -742,33 +789,15 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
                     msg = "Unexpected response return code"
                 end
             end
-            print("Error:up failed:" .. resultCode .. "，msg:" .. msg)
+            print("Error:up failed:" .. resultCode .. ", msg:" .. msg)
         end
     end
 
     return resultCode, code
 end
 
-function isWindows()
-    local separator = package.config:sub(1, 1)
-    local osName = os.getenv("OS")
-    local isWindows = (separator == '\\' or (osName ~= nil and startWith(string.lower(osName), "windows")))
-    return isWindows
-end
-
 function Util.toJson(eventArrayJson)
     return cjson.encode(eventArrayJson)
-end
-
-function toJson(eventArrayJson)
-    return cjson.encode(eventArrayJson)
-end
-
-function urlEncode(s)
-    s = string.gsub(s, "([^%w%.%- ])", function(c)
-        return string.format("%%%02X", string.byte(c))
-    end)
-    return string.gsub(s, " ", "+")
 end
 
 function Util.mergeTables(...)
@@ -793,12 +822,6 @@ function Util.mergeTables(...)
     return origin
 end
 
-function fileExists(path)
-    local retTable = { os.execute("cd " .. path) }
-    local code = retTable[3] or retTable[1]
-    return code == 0
-end
-
 function Util.mkdirFolder(path)
     if (fileExists(path)) then
         return path
@@ -820,24 +843,25 @@ function Util.mkdirFolder(path)
     return path
 end
 
-
 function Util.writeFile(fileName, eventArrayJson)
     if #eventArrayJson == 0 then
         return false
     end
-    local file = assert(io.open(fileName, 'a'))
+    if Util.fileHandler == nil then
+        Util.fileHandler = assert(io.open(fileName, 'a'))
+    end
+    local file = Util.fileHandler
+    -- local file = assert(io.open(fileName, 'a'))
     local data = ""
     for i = 1, #eventArrayJson do
-        local json = toJson(eventArrayJson[i])
+        local json = Util.toJson(eventArrayJson[i])
         data = data .. json .. "\n"
     end
     file:write(data)
-    file:close()
-    file = nil
+    -- file:close()
+    -- file = nil
     return true
 end
-  
-
 
 function Util.getFileName(filePath, fileNamePrefix, rule)
     local isWindows = isWindows()
@@ -855,32 +879,38 @@ function Util.getFileName(filePath, fileNamePrefix, rule)
     return fileName
 end
 
-function Util.getFileCount(fileName, fileSize, count)
-    if not fileSize or fileSize <= 0 then
-        return nil
-    end
-
+--- func desc
+---@param currentFile file*
+---@param fileName string
+---@param fileSize number
+---@param count number
+---@return number file count
+---@return file* effective handler
+function Util.getFileHandlerAndCount(currentFile, fileName, fileSize, count)
     if not count then
         count = 0
     end
 
-    local result = fileName .. "_" .. count
-    local file = assert(io.open(result, "a"))
+    local finalFileName = nil
+    local file = currentFile
+
     while file
     do
         local len = assert(file:seek("end"))
         if len < (fileSize * 1024 * 1024) then
-            file:close()
-            file = nil
+            -- get effective file handler
+            break
         else
             count = count + 1
-            result = fileName .. "_" .. count
-            file = assert(io.open(result, "a"))
+            finalFileName = fileName .. "_" .. count
+            -- close old file
+            file:close()
+            -- create new file
+            file = assert(io.open(finalFileName, "a"))
         end
     end
-    return count
+    return count, file
 end
-
 
 function Util.startWith(str, substr)
     if str == nil or substr == nil then
@@ -892,7 +922,7 @@ function Util.startWith(str, substr)
         return true
     end
 end
---日志打印
+-- log 
 function Util.log(level, key, msg)
     if Util.enableLog then
         print(level .. (key or "") .. (msg or ""))
@@ -900,32 +930,20 @@ function Util.log(level, key, msg)
 end
 function Util.tablecopy(src, dest)
     for k, v in pairs(src) do
-      if type(v) == "table" then
-        dest[k] = {}
-        Util.tablecopy(v, dest[k])
-      else
-        dest[k] =  v
-      end
+        if type(v) == "table" then
+            dest[k] = {}
+            Util.tablecopy(v, dest[k])
+        else
+            dest[k] =  v
+        end
     end
-  
-  end
+end
 
 function Util.create_uuid()
-    local seed = {'e','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'}
-    local sid = ""
-    for i=1,32 do
-        -- table.insert(tb,seed[math.random(1,16)])
-        sid = sid .. seed[math.random(1,16)]
-    end
-    -- local sid=table.concat(tb)
-    return string.format('%s-%s-%s-%s-%s',
-        string.sub(sid,1,8),
-        string.sub(sid,9,12),
-        string.sub(sid,13,16),
-        string.sub(sid,17,20),
-        string.sub(sid,21,32)
-    )
+    local uuidLib = require("uuid")
+    return uuidLib()
 end
+
 function Util.getHourFromDate(dateString)
     return string.sub(dateString, 12, 13)
 end
@@ -935,7 +953,9 @@ function Util.getDateFromDateTime(dateTime)
 end
 function Util.getCurrentHour()
     local t = os.date("%Y-%m-%d %H:%M:%S")
-    return string.sub(t, 12, 13)
+    if type(t) == "string" then
+        return string.sub(t, 12, 13)
+    end
 end
 Util.enableLog = false
 
