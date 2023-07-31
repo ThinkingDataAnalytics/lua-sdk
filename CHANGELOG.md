@@ -1,3 +1,10 @@
+### v1.5.4-beta.2
+**Date:** 2023/07/31
+
+**Notes:**
+
+* Fix network compatibility
+
 ### v1.5.4-beta.1
 **Date:** 2023/04/23
 

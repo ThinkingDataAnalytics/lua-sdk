@@ -1,4 +1,4 @@
-local TeSDK = require "ThinkingDataSdk"
+local TeSDK = require("ThinkingDataLuaSdk.ThinkingDataSdk")
 local cjson = require("cjson")
 
 local function getLogConsumer()

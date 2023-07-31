@@ -1,6 +1,7 @@
 -- LuaSDK
 local socket = require("socket")
-local http = require("ssl.https")
+local http = require("socket.http")
+local https = require("ssl.https")
 local ltn12 = require("ltn12")
 local cjson = require("cjson")
 local Util = {}
@@ -134,13 +135,13 @@ local function check(distinctId, accountId, eventType, eventName, eventId, prope
     end
     -- check name
     if ((distinctId == nil or string.len(distinctId) == 0) and (accountId == nil or string.len(accountId) == 0)) then
-        error("distinctId, accountId can't both be empty")
+        Util.log("[Error]", "distinctId, accountId can't both be empty")
     end
     if (Util.startWith(eventType, "track") and (eventName == nil or string.len(eventName) == 0)) then
-        error("eventName can't be empty when the type is track or track_update or track_overwrite")
+        Util.log("[Error]", "eventName can't be empty when the type is track or track_update or track_overwrite")
     end
     if (Util.startWith(eventType, "track_")  and (eventId == nil or string.len(eventId) == 0)) then
-        error("eventId can't be empty when the type is track_update or track_overwrite")
+        Util.log("[Error]", "eventId can't be empty when the type is track_update or track_overwrite")
     end
     checkKV(properties, eventName)
 end
@@ -212,14 +213,15 @@ end
 ---@param strictMode boolean enable properties check
 ---@param enableLog boolean enable log
 TdSDK = class(function(self, consumer, strictMode, enableLog)
+    Util.enableLog = enableLog
     if consumer == nil or type(consumer) ~= "table" then
-        error("consumer params is invalidate.")
+        Util.log("[Error]", "consumer params is invalidate.")
+        return
     end
     self.consumer = consumer
     self.checkKeyAndValue = strictMode or TdSDK.strictMode
     self.superProperties = {}
     self.dynamicSuperPropertiesTracker = nil
-    Util.enableLog = enableLog
 end)
 
 --- Construct debug consumer
@@ -230,12 +232,12 @@ end)
 ---@param deviceId string debug deviceId
 TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly, deviceId)
     if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
-        error("appid can't be empty.")
+        print("[ThinkingData][Error]" .. "appid can't be empty.")
     end
     if url == nil or type(url) ~= "string" or string.len(url) == 0 then
-        error("server url can't be empty.")
+        print("[ThinkingData][Error]" .. "server url can't be empty.")
     end
-    self.url = url .. "/data_debug"
+    self.url = (url or "") .. "/data_debug"
     self.appid = appid
     self.debugOnly = debugOnly
     self.deviceId = deviceId
@@ -244,7 +246,7 @@ end)
 
 function TdSDK.DebugConsumer:add(msg)
     local returnCode, code = Util.post(self.url, self.appid, msg, true, self.debugOnly, self.deviceId)
-    Util.log("Info: ", "send to: " .. self.url .. " return Code:[" .. code .. "]\nBody: " .. Util.toJson(msg) .. "\nreturn: " .. returnCode)
+    Util.log("Info: ", "send to: " .. self.url .. " return Code:[" .. (code or "") .. "]\nBody: " .. Util.toJson(msg) .. "\nreturn: " .. (returnCode or ""))
     if (returnCode == 0) then
         return true
     end
@@ -268,13 +270,13 @@ end
 ---@param cacheCapacity any
 TdSDK.BatchConsumer = class(function(self, url, appid, batchNum, cacheCapacity)
     if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
-        error("appid can't be empty")
+        print("[ThinkingData][Error]" .. "appid can't be empty")
     end
     if url == nil or type(url) ~= "string" or string.len(url) == 0 then
-        error("server url can't be empty")
+        print("[ThinkingData][Error]" .. "server url can't be empty")
     end
     if batchNum ~= nil and type(batchNum) ~= "number" then
-        error("must be nummber type")
+        print("[ThinkingData][Error]" .. "must be nummber type")
     end
     self.url = url .. "/sync_server"
     self.appid = appid
@@ -312,7 +314,7 @@ function TdSDK.BatchConsumer:flush(flag)
         local code
         while number > 0 and success == false do
             returnCode, code = Util.post(self.url, self.appid, events)
-            Util.log("Info: ", "sent to: " .. self.url .. " Code:[" .. code .. "]\nBody: " .. Util.toJson(events) .. "\nreturn: " .. returnCode)
+            Util.log("Info: ", "sent to: " .. self.url .. " Code:[" .. (code or "") .. "]\nBody: " .. Util.toJson(events) .. "\nreturn: " .. (returnCode or ""))
             if (code == 200) then
                 success = true
             else
@@ -359,14 +361,14 @@ end
 ---@param fileNamePrefix any
 TdSDK.LogConsumer = class(function(self, logPath, rule, batchNum, fileSize, fileNamePrefix)
     if logPath == nil or type(logPath) ~= "string" or string.len(logPath) == 0 then
-        error("directory can't be empty.")
+        print("[ThinkingData][Error]" .. "directory can't be empty.")
     end
     if rule ~= nil and type(rule) ~= "string" then
-        error("file name is invalidate.")
+        print("[ThinkingData][Error]" .. "file name is invalidate.")
     end
 
     if batchNum ~= nil and type(batchNum) ~= "number" then
-        error("data is must be Number type.")
+        print("[ThinkingData][Error]" .. "data is must be Number type.")
     end
     self.rule = rule or TdSDK.LOG_RULE.DAY
     self.logPath = Util.mkdirFolder(logPath)
@@ -432,7 +434,7 @@ function TdSDK.LogConsumer:flush()
     if (result) then
         self.eventArrayJson = {}
     else
-        Util.log("error", "data write failed. count: ", #self.eventArrayJson)
+        Util.log("[Error]", "data write failed. count: ", #self.eventArrayJson)
     end
 
     self.fileHandler:flush()
@@ -468,7 +470,7 @@ function TdSDK:setSuperProperties(params)
     if self.checkKeyAndValue == true then
         local ok, ret = pcall(checkKV, params)
         if not ok then
-            Util.log("Error: ", "common properties error: ", ret)
+            Util.log("[Error]", "common properties error: ", ret)
             return
         end
     end
@@ -629,7 +631,7 @@ function TdSDK:track(accountId, distinctId, eventName, properties)
     if ok then
         return ret
     else
-        Util.log("Error: ", "track failed: ", ret)
+        Util.log("[Error]", "track failed: ", ret)
     end
 end
 
@@ -705,7 +707,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.5.4-beta.1"
+TdSDK.version = "1.5.4-beta.2"
 TdSDK.batchNumber = 20
 TdSDK.strictMode = false
 TdSDK.cacheCapacity = 50
@@ -727,7 +729,7 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
             dryRun = 1
         end
         request_body = urlEncode(request_body)
-        request_body = "data=" .. request_body .. "&source=server&appid=" .. appid .. "&dryRun=" .. dryRun
+        request_body = "data=" .. request_body .. "&source=server&appid=" .. (appid or "") .. "&dryRun=" .. dryRun
         if deviceId then
            request_body = request_body .. "&deviceId=" .. deviceId 
         end
@@ -755,13 +757,24 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
             source = ltn12.source.string(request_body),
             sink = ltn12.sink.table(response_body),
         }
-        res, code = http.request(params)
+
+        local httpLen = string.len("http")
+        local httpsLen = string.len("https")
+        if url ~= nil and string.len(url) >= httpsLen and string.sub(url, 1, httpsLen) == "https" then
+            res, code = https.request(params)
+        elseif url ~= nil and string.len(url) >= httpLen and string.sub(url, 1, httpLen) == "http" then
+            res, code = http.request(params)
+        else
+            print("[ThinkingData] url format is wrong.")
+            return
+        end
+
         res = table.concat(response_body)
         if code ~= nil and type(code) == "number" and tonumber(code) == 200 then
             break
         end
-        print("requestUrl"..url)
-        print("Error: Up failed,code: " .. code .. ",res: " .. res .. " data: " .. request_body)
+        print("[ThinkingData] [url]: ".. url .. " [info]: " .. (code or ""))
+        print("[ThinkingData] [request]: " .. request_body .. " [response]: " .. (res or ""))
         count = count + 1
     end
     if count >= 3 then
@@ -772,7 +785,7 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
     if isDebug then
         resultCode = tonumber(resultJson["errorLevel"])
         if resultCode ~= 0 then
-            print("Error: Up failed, result: " .. res)
+            print("[ThinkingData] Error: Up failed, result: " .. res)
         end
     else
         resultCode = tonumber(resultJson["code"])
@@ -789,7 +802,7 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
                     msg = "Unexpected response return code"
                 end
             end
-            print("Error:up failed:" .. resultCode .. ", msg:" .. msg)
+            print("[ThinkingData] Error:up failed:" .. resultCode .. ", msg:" .. msg)
         end
     end
 
@@ -925,7 +938,7 @@ end
 -- log 
 function Util.log(level, key, msg)
     if Util.enableLog then
-        print(level .. (key or "") .. (msg or ""))
+        print("[ThinkingData]" .. level .. (key or "") .. (msg or ""))
     end
 end
 function Util.tablecopy(src, dest)
