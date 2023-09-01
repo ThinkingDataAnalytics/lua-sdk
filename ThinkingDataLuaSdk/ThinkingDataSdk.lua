@@ -707,7 +707,7 @@ function TdSDK:toString()
 end
 
 TdSDK.platForm = "Lua"
-TdSDK.version = "1.5.4-beta.2"
+TdSDK.version = "1.5.4"
 TdSDK.batchNumber = 20
 TdSDK.strictMode = false
 TdSDK.cacheCapacity = 50
