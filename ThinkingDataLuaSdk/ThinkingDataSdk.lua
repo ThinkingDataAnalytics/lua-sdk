@@ -5,6 +5,7 @@ local https = require("ssl.https")
 local ltn12 = require("ltn12")
 local cjson = require("cjson")
 local Util = {}
+local TDLog = {}
 
 local function class(base, _ctor)
     local c = {}
@@ -79,27 +80,27 @@ local function checkKV(properties, eventName)
     local userUnset = "user_unset"
     for key, value in pairs(properties) do
         if (string.len(key) == 0) then
-            Util.log("Warn: ", "The property key is empty")
+            TDLog.error("The property key is empty")
         end
         if (type(value) ~= "string" and
                 type(value) ~= "number" and
                 type(value) ~= "boolean" and
                 type(value) ~= "table") then
-            Util.log("Warn: ", "The property " .. key .. " is not number, string, boolean, table.")
+            TDLog.error("The property " .. key .. " is not number, string, boolean, table.")
         end
         if (type(value) == "table") then
             for k, v in pairs(value) do
                 if (type(v) ~= "string" and type(v) ~= "number" and type(v) ~= "boolean" and type(v) ~= "table") then
-                    Util.log("Warn: ", "The table property " .. k .. " is not number, string, boolean, table.")
+                    TDLog.error("The table property " .. k .. " is not number, string, boolean, table.")
                 end
             end
         end
         if (type(value) == "string" and string.len(value) == 0 and not (userUnset == eventName)) then
-            Util.log("Warn: ", "The property " .. key .. " string value is null or empty")
+            TDLog.error("The property " .. key .. " string value is null or empty")
         end
 
         if (userAdd == eventName and type(value) ~= "number") then
-            Util.log("Warn: ", "The property value of " .. key .. " should be a number ")
+            TDLog.error("The property value of " .. key .. " should be a number ")
         end
     end
 end
@@ -135,28 +136,28 @@ local function check(distinctId, accountId, eventType, eventName, eventId, prope
     end
     -- check name
     if ((distinctId == nil or string.len(distinctId) == 0) and (accountId == nil or string.len(accountId) == 0)) then
-        Util.log("[Error]", "distinctId, accountId can't both be empty")
+        TDLog.error("distinctId, accountId can't both be empty")
     end
     if (Util.startWith(eventType, "track") and (eventName == nil or string.len(eventName) == 0)) then
-        Util.log("[Error]", "eventName can't be empty when the type is track or track_update or track_overwrite")
+        TDLog.error("eventName can't be empty when the type is track or track_update or track_overwrite")
     end
     if (Util.startWith(eventType, "track_")  and (eventId == nil or string.len(eventId) == 0)) then
-        Util.log("[Error]", "eventId can't be empty when the type is track_update or track_overwrite")
+        TDLog.error("eventId can't be empty when the type is track_update or track_overwrite")
     end
     checkKV(properties, eventName)
 end
 
---- uoload data
+---
 ---@param consumer any
----@param distinctId any
----@param accountId any
----@param eventType any
----@param eventName any
----@param eventId any
----@param properties any
----@param superProperties any
----@param dynamicSuperPropertiesTracker any
----@param checkKeyAndValue any
+---@param distinctId string
+---@param accountId string
+---@param eventType string
+---@param eventName string
+---@param eventId string
+---@param properties table
+---@param superProperties table
+---@param dynamicSuperPropertiesTracker function
+---@param checkKeyAndValue boolean
 local function upload(consumer, distinctId, accountId, eventType, eventName, eventId, properties, superProperties, dynamicSuperPropertiesTracker, checkKeyAndValue)
     local finalProperties, presetProperties = divide(properties)
     local dynamicSuperProperties = {}
@@ -194,8 +195,8 @@ local function upload(consumer, distinctId, accountId, eventType, eventName, eve
     if eventType == "track" or eventType == "track_update" or eventType == "track_overwrite" then
         mergeProperties = Util.mergeTables(mergeProperties, superProperties)
         mergeProperties = Util.mergeTables(mergeProperties, dynamicSuperProperties)
-        mergeProperties["#lib"] = TdSDK.platForm
-        mergeProperties["#lib_version"] = TdSDK.version
+        mergeProperties["#lib"] = TDAnalytics.platForm
+        mergeProperties["#lib_version"] = TDAnalytics.version
     end
     mergeProperties = Util.mergeTables(mergeProperties, finalProperties)
     eventJson["properties"] = mergeProperties
@@ -207,95 +208,98 @@ local function upload(consumer, distinctId, accountId, eventType, eventName, eve
     return ret
 end
 
---- Construct SDK
+--- 
+--- Init analytics instance
 ---@param self any
 ---@param consumer any logConsuemr/batchConsumer/debugConsumer
 ---@param strictMode boolean enable properties check
----@param enableLog boolean enable log
-TdSDK = class(function(self, consumer, strictMode, enableLog)
-    Util.enableLog = enableLog
+---@param enableLog boolean deprecated. please use TDAnalytics.enableLog(enable)
+TDAnalytics = class(function(self, consumer, strictMode, enableLog)
     if consumer == nil or type(consumer) ~= "table" then
-        Util.log("[Error]", "consumer params is invalidate.")
+        TDLog.error("consumer params is invalidate.")
         return
     end
     self.consumer = consumer
-    self.checkKeyAndValue = strictMode or TdSDK.strictMode
+    self.checkKeyAndValue = strictMode or TDAnalytics.strictMode
     self.superProperties = {}
     self.dynamicSuperPropertiesTracker = nil
+    TDLog.info("SDK init success")
 end)
+
+--- Enable log or not
+---@param enable boolean
+function TDAnalytics.enableLog(enable)
+    TDLog.enable = enable
+end
 
 --- Construct debug consumer
 ---@param self any
----@param url string project url
----@param appid string project app id
+---@param url string Project url
+---@param appid string Project app id
 ---@param debugOnly boolean false: write data. true: No write data
----@param deviceId string debug deviceId
-TdSDK.DebugConsumer = class(function(self, url, appid, debugOnly, deviceId)
+---@param deviceId string Debug deviceId
+TDAnalytics.TDDebugConsumer = class(function(self, url, appid, debugOnly, deviceId)
     if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
-        print("[ThinkingData][Error]" .. "appid can't be empty.")
+        TDLog.error("appid can't be empty.")
     end
     if url == nil or type(url) ~= "string" or string.len(url) == 0 then
-        print("[ThinkingData][Error]" .. "server url can't be empty.")
+        TDLog.error("server url can't be empty.")
     end
     self.url = (url or "") .. "/data_debug"
     self.appid = appid
     self.debugOnly = debugOnly
     self.deviceId = deviceId
-    TdSDK.strictMode = true
+    TDAnalytics.strictMode = true
+    TDLog.info("Mode: debug consumer. AppId: " .. appid .. ". ReceiverUrl: " .. url)
 end)
 
-function TdSDK.DebugConsumer:add(msg)
+function TDAnalytics.TDDebugConsumer:add(msg)
     local returnCode, code = Util.post(self.url, self.appid, msg, true, self.debugOnly, self.deviceId)
-    Util.log("Info: ", "send to: " .. self.url .. " return Code:[" .. (code or "") .. "]\nBody: " .. Util.toJson(msg) .. "\nreturn: " .. (returnCode or ""))
     if (returnCode == 0) then
         return true
     end
     return false
 end
-function TdSDK.DebugConsumer:flush()
+function TDAnalytics.TDDebugConsumer:flush()
 end
-function TdSDK.DebugConsumer:close()
-end
-function TdSDK.DebugConsumer:toString()
-    return "\n--Consumer: DebugConsumer" ..
-            "\n--Consumer.Url: " .. self.url ..
-            "\n--Consumer.Appid: " .. self.appid
+function TDAnalytics.TDDebugConsumer:close()
+    TDLog.info("Close debug consumer")
 end
 
---- Construct BatchConsumer
+--- Construct batch consumer
 ---@param self any
----@param url any
----@param appid any
----@param batchNum any
----@param cacheCapacity any
-TdSDK.BatchConsumer = class(function(self, url, appid, batchNum, cacheCapacity)
+---@param url string
+---@param appid string
+---@param batchNum number
+---@param cacheCapacity number
+TDAnalytics.TDBatchConsumer = class(function(self, url, appid, batchNum, cacheCapacity)
     if appid == nil or type(appid) ~= "string" or string.len(appid) == 0 then
-        print("[ThinkingData][Error]" .. "appid can't be empty")
+        TDLog.error("appid can't be empty")
     end
     if url == nil or type(url) ~= "string" or string.len(url) == 0 then
-        print("[ThinkingData][Error]" .. "server url can't be empty")
+        TDLog.error("url can't be empty")
     end
     if batchNum ~= nil and type(batchNum) ~= "number" then
-        print("[ThinkingData][Error]" .. "must be nummber type")
+        TDLog.error("batchNum must be nummber type")
     end
     self.url = url .. "/sync_server"
     self.appid = appid
-    self.batchNum = batchNum or TdSDK.batchNumber
+    self.batchNum = batchNum or TDAnalytics.batchNumber
     self.eventArrayJson = {}
-    self.cacheCapacity = cacheCapacity or TdSDK.cacheCapacity
+    self.cacheCapacity = cacheCapacity or TDAnalytics.cacheCapacity
     self.cacheTable = {}
+    TDLog.info("Mode: batch consumer. AppId: " .. appid .. ". ReceiverUrl: " .. url)
 end)
-function TdSDK.BatchConsumer:add(msg)
+function TDAnalytics.TDBatchConsumer:add(msg)
     local num = #self.eventArrayJson + 1
     self.eventArrayJson[num] = msg
+    TDLog.info("Enqueue data to buffer. data =" .. msg)
     if (num >= self.batchNum or #self.cacheTable > 0) then
         return self:flush()
-    else
-        Util.log("info: ", "add event to buffer")
     end
     return true
 end
-function TdSDK.BatchConsumer:flush(flag)
+function TDAnalytics.TDBatchConsumer:flush(flag)
     if #self.eventArrayJson == 0 and #self.cacheTable == 0 then
         return true
     end
@@ -314,7 +318,6 @@ function TdSDK.BatchConsumer:flush(flag)
         local code
         while number > 0 and success == false do
             returnCode, code = Util.post(self.url, self.appid, events)
-            Util.log("Info: ", "sent to: " .. self.url .. " Code:[" .. (code or "") .. "]\nBody: " .. Util.toJson(events) .. "\nreturn: " .. (returnCode or ""))
             if (code == 200) then
                 success = true
             else
@@ -342,66 +345,63 @@ function TdSDK.BatchConsumer:flush(flag)
 
     return true
 end
-function TdSDK.BatchConsumer:close()
-    return self:flush(true)
-end
-function TdSDK.BatchConsumer:toString()
-    return "\n--Consumer: BatchConsumer" ..
-            "\n--Consumer.Url: " .. self.url ..
-            "\n--Consumer.Appid: " .. self.appid ..
-            "\n--Consumer.BatchNum: " .. self.batchNum
+function TDAnalytics.TDBatchConsumer:close()
+    self:flush(true)
+    TDLog.info("Close batch consumer")
 end
 
 --- Construct logConsumer
 ---@param self any
----@param logPath any
----@param rule any
----@param batchNum any
----@param fileSize any
----@param fileNamePrefix any
-TdSDK.LogConsumer = class(function(self, logPath, rule, batchNum, fileSize, fileNamePrefix)
+---@param logPath string
+---@param rule string
+---@param batchNum number
+---@param fileSize number
+---@param fileNamePrefix string
+TDAnalytics.TDLogConsumer = class(function(self, logPath, rule, batchNum, fileSize, fileNamePrefix)
     if logPath == nil or type(logPath) ~= "string" or string.len(logPath) == 0 then
-        print("[ThinkingData][Error]" .. "directory can't be empty.")
+        TDLog.error("logPath can't be empty.")
     end
     if rule ~= nil and type(rule) ~= "string" then
-        print("[ThinkingData][Error]" .. "file name is invalidate.")
+        TDLog.error("rule is invalidate.")
     end
 
     if batchNum ~= nil and type(batchNum) ~= "number" then
-        print("[ThinkingData][Error]" .. "data is must be Number type.")
+        TDLog.error("batchNum is must be Number type.")
     end
-    self.rule = rule or TdSDK.LOG_RULE.DAY
+    self.rule = rule or TDAnalytics.LOG_RULE.DAY
     self.logPath = Util.mkdirFolder(logPath)
     self.fileNamePrefix = fileNamePrefix
     self.fileSize = fileSize
     self.count = 0;
     self.file = nil;
-    self.batchNum = batchNum or TdSDK.batchNumber
+    self.batchNum = batchNum or TDAnalytics.batchNumber
     self.currentFileTime = os.date("%Y-%m-%d %H")
     self.fileName = Util.getFileName(logPath, fileNamePrefix, self.rule)
     self.eventArrayJson = {}
+    TDLog.info("Mode: log consumer. File path: " .. logPath)
 end)
 
--- retain file handler
-TdSDK.LogConsumer.fileHandler = nil
+-- Retain file handler
+TDAnalytics.TDLogConsumer.fileHandler = nil
 
-function TdSDK.LogConsumer:add(msg)
+function TDAnalytics.TDLogConsumer:add(msg)
     local num = #self.eventArrayJson + 1
     self.eventArrayJson[num] = msg
+
+    TDLog.info("Enqueue data to buffer")
+
     if (num >= self.batchNum) then
         self:flush()
-    else
-        Util.log("info: ", "add event to buffer")
     end
     return num
 end
-function TdSDK.LogConsumer:flush()
+
+function TDAnalytics.TDLogConsumer:flush()
     if #self.eventArrayJson == 0 then
         return true
     end
-    Util.log("info: ", "flush data, count: ", #self.eventArrayJson)
     local isFileNameChange = false
-    if self.rule == TdSDK.LOG_RULE.HOUR then
+    if self.rule == TDAnalytics.LOG_RULE.HOUR then
         isFileNameChange = Util.getDateFromDateTime(self.currentFileTime) ~= os.date("%Y-%m-%d")
                 or Util.getHourFromDate(self.currentFileTime) ~= Util.getCurrentHour()
     else
@@ -430,11 +430,13 @@ function TdSDK.LogConsumer:flush()
         data = data .. json .. "\n"
     end
 
+    TDLog.info("Flush data, count: [" .. #self.eventArrayJson .. "]\n" .. data)
+
     local result = self.fileHandler:write(data)
     if (result) then
         self.eventArrayJson = {}
     else
-        Util.log("[Error]", "data write failed. count: ", #self.eventArrayJson)
+        TDLog.error("data write failed. count: ", #self.eventArrayJson)
     end
 
     self.fileHandler:flush()
@@ -442,35 +444,31 @@ function TdSDK.LogConsumer:flush()
 
     return true
 end
-function TdSDK.LogConsumer:close()
+
+function TDAnalytics.TDLogConsumer:close()
     self:flush()
     -- close old file handler
     if self.fileHandler then
         self.fileHandler:close()
     end
-end
-function TdSDK.LogConsumer:toString()
-    return "\n--Consumer: LogConsumer" ..
-            "\n--Consumer.LogPath: " .. self.logPath ..
-            "\n--Consumer.Rule: " .. self.rule ..
-            "\n--Consumer.BatchNum: " .. self.batchNum
+    TDLog.info("Close log consumer")
 end
 
---- set dynamic common properties
----@param callback any
-function TdSDK:setDynamicSuperProperties(callback)
+--- Set dynamic common properties
+---@param callback function
+function TDAnalytics:setDynamicSuperProperties(callback)
     if callback ~= nil then
         self.dynamicSuperPropertiesTracker = callback
     end
 end
 
---- set common properties
----@param params any
-function TdSDK:setSuperProperties(params)
+--- Set common properties
+---@param params table
+function TDAnalytics:setSuperProperties(params)
     if self.checkKeyAndValue == true then
         local ok, ret = pcall(checkKV, params)
         if not ok then
-            Util.log("[Error]", "common properties error: ", ret)
+            TDLog.error("common properties error: ", ret)
             return
         end
     end
@@ -479,118 +477,108 @@ function TdSDK:setSuperProperties(params)
         self.superProperties = Util.mergeTables(self.superProperties, params)
     end
 end
-function TdSDK:setSuperProperty(key, value)
+
+--- Set common property
+---@param key string
+---@param value any
+function TDAnalytics:setSuperProperty(key, value)
     if (key ~= nil) then
         local params = {}
         params[key] = value
-        print(params[key])
+        TDLog.info(params[key])
         self:setSuperProperties(params)
     end
 end
 
---- remove common properties with key
+--- Remove common properties with key
 ---@param key any
-function TdSDK:removeSuperProperty(key)
+function TDAnalytics:removeSuperProperty(key)
     if key == nil then
         return nil
     end
     self.superProperties[key] = nil
 end
 
---- find common properties with key
----@param key any
-function TdSDK:getSuperProperty(key)
+--- Find common properties with key
+---@param key string
+function TDAnalytics:getSuperProperty(key)
     if key == nil then
         return nil
     end
     return self.superProperties[key]
 end
 
---- get all properties
-function TdSDK:getSuperProperties()
+--- Get all properties
+---@return table
+function TDAnalytics:getSuperProperties()
     return self.superProperties
 end
 
---- clear common properties
-function TdSDK:clearSuperProperties()
+--- Clear common properties
+function TDAnalytics:clearSuperProperties()
     self.superProperties = {}
 end
 
---- set user properties. would overwrite existing names
----@param accountId any
----@param distinctId any
----@param properties any
-function TdSDK:userSet(accountId, distinctId, properties)
+--- Set user properties. Would overwrite existing names
+---@param accountId string
+---@param distinctId string
+---@param properties table
+function TDAnalytics:userSet(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_set", nil, nil, properties, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "userSet: success")
         return ret
-    else
-        Util.log("Error: ", "userSet failed: ", ret)
     end
 end
 
---- set user properties, If such property had been set before, this message would be neglected.
----@param accountId any
----@param distinctId any
----@param properties any
-function TdSDK:userSetOnce(accountId, distinctId, properties)
+--- Set user properties, if such property had been set before, this message would be neglected.
+---@param accountId string
+---@param distinctId string
+---@param properties table
+function TDAnalytics:userSetOnce(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_setOnce", nil, nil, properties, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "userSetOnce: success")
         return ret
-    else
-        Util.log("Error: ", "userSetOnce failed: ", ret)
     end
 end
 
---- to accumulate operations against the property
----@param accountId any
----@param distinctId any
----@param properties any
-function TdSDK:userAdd(accountId, distinctId, properties)
+--- To accumulate operations against the property
+---@param accountId string
+---@param distinctId string
+---@param properties table
+function TDAnalytics:userAdd(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_add", nil, nil, properties, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "userAdd: success")
         return ret
-    else
-        Util.log("Error: ", "userAdd failed: ", ret)
     end
 end
 
---- to add user properties of array type
----@param accountId any
----@param distinctId any
----@param properties any
-function TdSDK:userAppend(accountId, distinctId, properties)
+--- To add user properties of array type
+---@param accountId string
+---@param distinctId string
+---@param properties table
+function TDAnalytics:userAppend(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_append", nil, nil, properties, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "userAppend: success")
         return ret
-    else
-        Util.log("Error: ", "userAppend failed: ", ret)
     end
 end
 
---- append user properties to array type by unique.
----@param accountId any
----@param distinctId any
----@param properties any
-function TdSDK:userUniqueAppend(accountId, distinctId, properties)
+--- Append user properties to array type by unique.
+---@param accountId string
+---@param distinctId string
+---@param properties table
+function TDAnalytics:userUniqueAppend(accountId, distinctId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_uniq_append", nil, nil, properties, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "userUniqueAppend: success")
         return ret
-    else
-        Util.log("Error: ", "userUniqueAppend failed: ", ret)
     end
 end
 
---- clear the user properties of users
----@param accountId any
----@param distinctId any
----@param properties any
-function TdSDK:userUnset(accountId, distinctId, properties)
+--- Clear the user properties of users
+---@param accountId string
+---@param distinctId string
+---@param properties table
+function TDAnalytics:userUnset(accountId, distinctId, properties)
     local unSetProperties = {}
     for key, value in pairs(properties) do
         if Util.startWith(key, '#')then
@@ -601,47 +589,39 @@ function TdSDK:userUnset(accountId, distinctId, properties)
     end
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_unset", nil, nil, unSetProperties, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "userUnSet: success")
         return ret
-    else
-        Util.log("Error: ", "userUnSet failed: ", ret)
     end
 end
 
---- delete a user, This operation cannot be undone
----@param accountId any
----@param distinctId any
-function TdSDK:userDel(accountId, distinctId)
+--- Delete a user, This operation cannot be undone
+---@param accountId string
+---@param distinctId string
+function TDAnalytics:userDel(accountId, distinctId)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "user_del", nil, nil, {}, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "userDelete: success")
         return ret
-    else
-        Util.log("Error: ", "userDelete failed: ", ret)
     end
 end
 
---- report ordinary event
----@param accountId any
----@param distinctId any
----@param eventName any
----@param properties any
-function TdSDK:track(accountId, distinctId, eventName, properties)
+--- Report ordinary event
+---@param accountId string
+---@param distinctId string
+---@param eventName string
+---@param properties table
+function TDAnalytics:track(accountId, distinctId, eventName, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, "", properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
     if ok then
         return ret
-    else
-        Util.log("[Error]", "track failed: ", ret)
     end
 end
 
---- report first event.
----@param accountId any
----@param distinctId any
----@param eventName any
----@param firstCheckId string it is flag of the first event
----@param properties any
-function TdSDK:trackFirst(accountId, distinctId, eventName, firstCheckId, properties)
+--- Report first event.
+---@param accountId string
+---@param distinctId string
+---@param eventName string
+---@param firstCheckId string It is flag of the first event
+---@param properties table
+function TDAnalytics:trackFirst(accountId, distinctId, eventName, firstCheckId, properties)
     local mProperties = {}
     for i,v in ipairs(properties) do
         print(v)
@@ -655,67 +635,64 @@ function TdSDK:trackFirst(accountId, distinctId, eventName, firstCheckId, proper
     end
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track", eventName, nil, mProperties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "trackFirst: success")
         return ret
-    else
-        Util.log("Error: ", "trackFirst failed: ", ret)
     end
 end
 
---- updatable event.
----@param accountId any
----@param distinctId any
----@param eventName any
----@param eventId any
----@param properties any
-function TdSDK:trackUpdate(accountId, distinctId, eventName, eventId, properties)
+--- Updatable event.
+---@param accountId string
+---@param distinctId string
+---@param eventName string
+---@param eventId string
+---@param properties table
+function TDAnalytics:trackUpdate(accountId, distinctId, eventName, eventId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_update", eventName, eventId, properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "track_update: success")
         return ret
-    else
-        Util.log("Error: ", "track_update failed: ", ret)
     end
 end
 
---- report overridable event.
----@param accountId any
----@param distinctId any
----@param eventName any
----@param eventId any
----@param properties any
-function TdSDK:trackOverwrite(accountId, distinctId, eventName, eventId, properties)
+--- Report overridable event.
+---@param accountId string
+---@param distinctId string
+---@param eventName string
+---@param eventId string
+---@param properties table
+function TDAnalytics:trackOverwrite(accountId, distinctId, eventName, eventId, properties)
     local ok, ret = pcall(upload, self.consumer, distinctId, accountId, "track_overwrite", eventName, eventId, properties, self.superProperties, self.dynamicSuperPropertiesTracker, self.checkKeyAndValue)
     if ok then
-        Util.log("Info: ", "track_overwrite: success")
         return ret
-    else
-        Util.log("Error: ", "track_overwrite failed: ", ret)
     end
 end
 
-function TdSDK:flush()
+--- Flush data
+function TDAnalytics:flush()
     self.consumer:flush()
 end
 
-function TdSDK:close()
+--- Close SDK
+function TDAnalytics:close()
     self.consumer:close()
+    TDLog.info("SDK closed.")
 end
 
-function TdSDK:toString()
+function TDAnalytics:toString()
     return self.consumer:toString()
 end
 
-TdSDK.platForm = "Lua"
-TdSDK.version = "1.5.4"
-TdSDK.batchNumber = 20
-TdSDK.strictMode = false
-TdSDK.cacheCapacity = 50
-TdSDK.logModePath = "."
+TDAnalytics.platForm = "Lua"
+TDAnalytics.version = "2.0.0-beta.1"
+TDAnalytics.batchNumber = 20
+TDAnalytics.strictMode = false
+TDAnalytics.cacheCapacity = 50
+TDAnalytics.logModePath = "."
 
-TdSDK.LOG_RULE = {}
-TdSDK.LOG_RULE.HOUR = "%Y-%m-%d-%H"
-TdSDK.LOG_RULE.DAY = "%Y-%m-%d"
+--- Log file rotate type
+TDAnalytics.LOG_RULE = {}
+--- Log file rotate type: By hour
+TDAnalytics.LOG_RULE.HOUR = "%Y-%m-%d-%H"
+--- Log file rotate type: By Day
+TDAnalytics.LOG_RULE.DAY = "%Y-%m-%d"
 
 function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
     if not isDebug and #eventArrayJson == 0 then
@@ -735,6 +712,9 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
         end
         contentType = "application/x-www-form-urlencoded"
     end
+
+    TDLog.info("Send data, request = " .. request_body)
+
     local response_body = {}
     local count = 0
     local res, code
@@ -745,8 +725,8 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
             method = "POST",
             headers = {
                 ["appid"] = appid;
-                ["TA-Integration-Type"] = TdSDK.platForm;
-                ["TA-Integration-Version"] = TdSDK.version;
+                ["TA-Integration-Type"] = TDAnalytics.platForm;
+                ["TA-Integration-Version"] = TDAnalytics.version;
                 ["TA-Integration-Count"] = #eventArrayJson;
                 ["Content-Type"] = contentType;
                 ["Content-Length"] = #request_body;
@@ -765,16 +745,14 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
         elseif url ~= nil and string.len(url) >= httpLen and string.sub(url, 1, httpLen) == "http" then
             res, code = http.request(params)
         else
-            print("[ThinkingData] url format is wrong.")
+            TDLog.error("url format is wrong.")
             return
-        end
-
+        end        
         res = table.concat(response_body)
+        TDLog.info("Send data, response = " .. (res or ""))
         if code ~= nil and type(code) == "number" and tonumber(code) == 200 then
             break
         end
-        print("[ThinkingData] [url]: ".. url .. " [info]: " .. (code or ""))
-        print("[ThinkingData] [request]: " .. request_body .. " [response]: " .. (res or ""))
         count = count + 1
     end
     if count >= 3 then
@@ -785,7 +763,7 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
     if isDebug then
         resultCode = tonumber(resultJson["errorLevel"])
         if resultCode ~= 0 then
-            print("[ThinkingData] Error: Up failed, result: " .. res)
+            TDLog.error("Up failed, result: " .. res)
         end
     else
         resultCode = tonumber(resultJson["code"])
@@ -802,7 +780,7 @@ function Util.post(url, appid, eventArrayJson, isDebug, debugOnly, deviceId)
                     msg = "Unexpected response return code"
                 end
             end
-            print("[ThinkingData] Error:up failed:" .. resultCode .. ", msg:" .. msg)
+            TDLog.error("Up failed:" .. resultCode .. ", msg:" .. msg)
         end
     end
 
@@ -935,12 +913,7 @@ function Util.startWith(str, substr)
         return true
     end
 end
--- log 
-function Util.log(level, key, msg)
-    if Util.enableLog then
-        print("[ThinkingData]" .. level .. (key or "") .. (msg or ""))
-    end
-end
+
 function Util.tablecopy(src, dest)
     for k, v in pairs(src) do
         if type(v) == "table" then
@@ -972,4 +945,19 @@ function Util.getCurrentHour()
 end
 Util.enableLog = false
 
-return TdSDK
+TDLog.enable = false
+function TDLog.info(...)
+    if TDLog.enable then
+        io.write("[ThinkingData][" .. os.date("%Y-%m-%d %H:%M:%S") .. "][Info] ")
+        print(...)
+    end
+end
+
+function TDLog.error(...)
+    if TDLog.enable then
+        io.write("[ThinkingData][" .. os.date("%Y-%m-%d %H:%M:%S") .. "][Error] ")
+        print(...)
+    end
+end
+
+return TDAnalytics

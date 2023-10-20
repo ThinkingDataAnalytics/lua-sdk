@@ -2,27 +2,29 @@ local TeSDK = require("ThinkingDataLuaSdk.ThinkingDataSdk")
 local cjson = require("cjson")
 
 local function getLogConsumer()
-	return TeSDK.LogConsumer("H:/log", TeSDK.LOG_RULE.HOUR, 200, 500)
+	return TeSDK.TDLogConsumer("./log", TeSDK.LOG_RULE.HOUR, 200, 500)
 end
 
 local function getDebugConsumer()
-	return TeSDK.DebugConsumer("serverUrl", "appId", false, "123456789")
+	return TeSDK.TDDebugConsumer("receiverUrl", "appId", false, "123456789")
 end
 
 local function getBatchConsumer()
-	return TeSDK.BatchConsumer("serverUrl", "appId")
+	return TeSDK.TDBatchConsumer("receiverUrl", "appId")
 end
 
+TeSDK.enableLog(true)
 
 local consumer = getLogConsumer()
 -- local consumer = getDebugConsumer()
 -- local consumer = getBatchConsumer()
 
 --- init SDK with consumer
-local sdk = TeSDK(consumer, false, false)
+local sdk = TeSDK(consumer, false, true)
 
 local distinctId = "1234567890987654321"
 local accountId = nil
+
 
 -- set dynamic super properties
 sdk:setDynamicSuperProperties(function ()
