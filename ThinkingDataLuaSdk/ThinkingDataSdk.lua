@@ -681,7 +681,7 @@ function TDAnalytics:toString()
 end
 
 TDAnalytics.platForm = "Lua"
-TDAnalytics.version = "2.0.0-beta.1"
+TDAnalytics.version = "2.0.0"
 TDAnalytics.batchNumber = 20
 TDAnalytics.strictMode = false
 TDAnalytics.cacheCapacity = 50
