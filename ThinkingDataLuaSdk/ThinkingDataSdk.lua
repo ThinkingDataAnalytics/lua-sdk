@@ -293,7 +293,7 @@ end)
 function TDAnalytics.TDBatchConsumer:add(msg)
     local num = #self.eventArrayJson + 1
     self.eventArrayJson[num] = msg
-    TDLog.info("Enqueue data to buffer. data =" .. msg)
+    TDLog.info("Enqueue data to buffer")
     if (num >= self.batchNum or #self.cacheTable > 0) then
         return self:flush()
     end
@@ -368,10 +368,15 @@ TDAnalytics.TDLogConsumer = class(function(self, logPath, rule, batchNum, fileSi
     if batchNum ~= nil and type(batchNum) ~= "number" then
         TDLog.error("batchNum is must be Number type.")
     end
+
+    if fileSize ~= nil and type(fileSize) ~= "number" then
+        TDLog.error("fileSize is must be Number type.")
+    end
+
     self.rule = rule or TDAnalytics.LOG_RULE.DAY
     self.logPath = Util.mkdirFolder(logPath)
     self.fileNamePrefix = fileNamePrefix
-    self.fileSize = fileSize
+    self.fileSize = fileSize or 0
     self.count = 0;
     self.file = nil;
     self.batchNum = batchNum or TDAnalytics.batchNumber
@@ -681,7 +686,7 @@ function TDAnalytics:toString()
 end
 
 TDAnalytics.platForm = "Lua"
-TDAnalytics.version = "2.0.0"
+TDAnalytics.version = "2.0.1"
 TDAnalytics.batchNumber = 20
 TDAnalytics.strictMode = false
 TDAnalytics.cacheCapacity = 50
